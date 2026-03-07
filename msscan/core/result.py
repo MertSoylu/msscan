@@ -15,5 +15,9 @@ class ScanResult:
     url: str            # exact URL where the finding was detected
     detail: str         # human-readable description of the finding
     evidence: str = ""  # payload or response snippet that proves the finding
+    confidence: str = "MEDIUM"  # HIGH | MEDIUM | LOW
+    remediation: str = ""  # actionable fix guidance
+    cwe_id: str = ""  # e.g. "CWE-79"
+    references: list[str] = field(default_factory=list)
     # ISO 8601 timestamp with seconds precision, auto-set at creation time
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))

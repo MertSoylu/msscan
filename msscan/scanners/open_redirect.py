@@ -1,6 +1,8 @@
-"""Open Redirect scanner."""
+"""Open Redirect scanner — detects HTTP, JavaScript, and meta-refresh redirects."""
 
 from __future__ import annotations
+
+import re
 
 from urllib.parse import urlparse
 
@@ -16,6 +18,32 @@ REDIRECT_PARAMS = [
     "dest", "destination", "continue", "target", "link", "out",
 ]
 
+_REMEDIATION = (
+    "Validate redirect URLs against an explicit allowlist of trusted domains. "
+    "Reject or sanitize any URL that does not match an allowed destination."
+)
+
+# JS redirect patterns: capture the URL string from common redirect assignments.
+_JS_REDIRECT_RE = re.compile(
+    r"""(?:window\.location|document\.location|window\.location\.href|window\.location\.replace)\s*[=(]\s*['"]([^'"]+)['"]""",
+    re.IGNORECASE,
+)
+
+# Meta refresh: <meta http-equiv="refresh" content="0; url=https://...">
+_META_REFRESH_RE = re.compile(
+    r"""<meta[^>]+http-equiv=['"]\s*refresh\s*['"][^>]+content=['"]\s*\d+\s*;\s*url=([^'">\s]+)""",
+    re.IGNORECASE,
+)
+
+
+def _is_external(target_url: str, base_url: str) -> bool:
+    """Return True if *target_url* resolves to a different host than *base_url*."""
+    parsed_target = urlparse(target_url)
+    parsed_base = urlparse(base_url)
+    if not parsed_target.netloc:
+        return False
+    return parsed_target.netloc.lower() != parsed_base.netloc.lower()
+
 
 class Scanner(BaseScanner):
     name = "open_redirect"
@@ -26,7 +54,7 @@ class Scanner(BaseScanner):
         if not payloads:
             payloads = self._default_payloads()
 
-        # Merge existing URL params with common redirect parameter names
+        # Merge existing URL params with common redirect parameter names.
         params = list(extract_params(url).keys())
         for rp in REDIRECT_PARAMS:
             if rp not in params:
@@ -37,19 +65,76 @@ class Scanner(BaseScanner):
                 test_url = inject_param(url, param_name, payload)
                 try:
                     resp = await client.get(test_url)
-                    location = resp.headers.get("location", "")
+                    found = False
 
+                    # 1. HTTP 3xx redirect via Location header.
                     if resp.status_code in (301, 302, 303, 307, 308):
-                        parsed_loc = urlparse(location)
-                        if parsed_loc.netloc and parsed_loc.netloc != urlparse(url).netloc:
+                        location = resp.headers.get("location", "")
+                        if _is_external(location, url):
                             results.append(ScanResult(
                                 scanner=self.name,
-                                severity="MEDIUM",
+                                severity="HIGH",
                                 url=test_url,
-                                detail=f"Open Redirect — '{param_name}' redirects to an external URL",
+                                detail=(
+                                    f"Open Redirect (HTTP {resp.status_code}) — "
+                                    f"'{param_name}' redirects to external URL"
+                                ),
                                 evidence=f"Location: {location}",
+                                confidence="HIGH",
+                                cwe_id="CWE-601",
+                                remediation=_REMEDIATION,
                             ))
-                            break  # Parameter is vulnerable, move to next
+                            found = True
+
+                    if not found:
+                        body = resp.text
+
+                        # 2. JavaScript redirect in response body.
+                        for js_match in _JS_REDIRECT_RE.finditer(body):
+                            js_url = js_match.group(1)
+                            if _is_external(js_url, url):
+                                results.append(ScanResult(
+                                    scanner=self.name,
+                                    severity="MEDIUM",
+                                    url=test_url,
+                                    detail=(
+                                        f"Open Redirect (JavaScript) — "
+                                        f"'{param_name}' triggers JS redirect to external URL"
+                                    ),
+                                    evidence=f"JS redirect: {js_match.group(0)[:120]}",
+                                    confidence="MEDIUM",
+                                    cwe_id="CWE-601",
+                                    remediation=_REMEDIATION,
+                                ))
+                                found = True
+                                break
+
+                    if not found:
+                        body = resp.text
+
+                        # 3. Meta-refresh redirect in HTML.
+                        for meta_match in _META_REFRESH_RE.finditer(body):
+                            meta_url = meta_match.group(1).strip().rstrip('"\'>')
+                            if _is_external(meta_url, url):
+                                results.append(ScanResult(
+                                    scanner=self.name,
+                                    severity="MEDIUM",
+                                    url=test_url,
+                                    detail=(
+                                        f"Open Redirect (meta-refresh) — "
+                                        f"'{param_name}' causes meta redirect to external URL"
+                                    ),
+                                    evidence=f"Meta refresh URL: {meta_url}",
+                                    confidence="HIGH",
+                                    cwe_id="CWE-601",
+                                    remediation=_REMEDIATION,
+                                ))
+                                found = True
+                                break
+
+                    if found:
+                        break  # Parameter is vulnerable; move to next param.
+
                 except Exception:
                     continue
 

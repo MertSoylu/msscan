@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 
+from rich.color import Color
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
@@ -47,9 +49,43 @@ BANNER = r"""
 """
 
 
+# Gradient color stops for the banner (cyan → blue → purple)
+_GRADIENT_COLORS = [
+    (0, 212, 255),    # #00d4ff
+    (0, 180, 216),    # #00b4d8
+    (0, 150, 199),    # #0096c7
+    (0, 119, 182),    # #0077b6
+    (131, 56, 236),   # #8338ec
+    (199, 125, 255),  # #c77dff
+]
+
+
+def _lerp_color(colors: list[tuple[int, int, int]], t: float) -> tuple[int, int, int]:
+    """Linearly interpolate between a list of RGB color stops at position t (0..1)."""
+    t = max(0.0, min(1.0, t))
+    n = len(colors) - 1
+    idx = t * n
+    i = int(idx)
+    if i >= n:
+        return colors[-1]
+    frac = idx - i
+    r = int(colors[i][0] + (colors[i + 1][0] - colors[i][0]) * frac)
+    g = int(colors[i][1] + (colors[i + 1][1] - colors[i][1]) * frac)
+    b = int(colors[i][2] + (colors[i + 1][2] - colors[i][2]) * frac)
+    return (r, g, b)
+
+
 def print_banner() -> None:
-    """Print the ASCII banner."""
-    text = Text(BANNER, style="bold cyan")
+    """Print the ASCII banner with gradient colors."""
+    lines = BANNER.strip("\n").splitlines()
+    text = Text()
+    max_len = max(len(line) for line in lines) or 1
+    for i, line in enumerate(lines):
+        for j, ch in enumerate(line):
+            t = j / max_len
+            r, g, b = _lerp_color(_GRADIENT_COLORS, t)
+            text.append(ch, style=Style(color=Color.from_rgb(r, g, b), bold=True))
+        text.append("\n")
     panel = Panel(
         text,
         subtitle=f"[dim]v{__version__} • Web Application Security Scanner[/dim]",
@@ -108,18 +144,28 @@ def print_scan_summary(url: str, results: list[ScanResult], elapsed_secs: float)
     console.print()
 
 
-def print_results(results: list[ScanResult]) -> None:
-    """Print findings grouped by module as separate tables."""
-    if not results:
-        return
+def build_results_renderables(
+    results: list[ScanResult],
+    severity_filter: set[str] | None = None,
+) -> list[Table | Rule]:
+    """Build Rich renderables for scan findings, optionally filtered by severity.
 
-    # Group results by scanner name so each module gets its own table
+    Returns a list of Rule + Table pairs for each scanner module.
+    """
+    filtered = results
+    if severity_filter:
+        filtered = [r for r in results if r.severity in severity_filter]
+
+    if not filtered:
+        return []
+
     grouped: dict[str, list[ScanResult]] = defaultdict(list)
-    for r in results:
+    for r in filtered:
         grouped[r.scanner].append(r)
 
+    renderables: list[Table | Rule] = []
     for module, findings in grouped.items():
-        console.print(Rule(
+        renderables.append(Rule(
             title=f"[bold cyan]{module.upper()} Findings ({len(findings)})[/bold cyan]",
             style="bright_cyan",
         ))
@@ -132,6 +178,7 @@ def print_results(results: list[ScanResult]) -> None:
             show_lines=True,
         )
         table.add_column("Severity", width=14)
+        table.add_column("Confidence", width=10)
         table.add_column("URL", style="cyan", ratio=2)
         table.add_column("Detail", ratio=3)
         table.add_column("Evidence", style="dim", ratio=2)
@@ -139,12 +186,25 @@ def print_results(results: list[ScanResult]) -> None:
         for r in findings:
             icon = SEVERITY_ICONS.get(r.severity, "")
             color = SEVERITY_COLORS.get(r.severity, "white")
+            conf_color = {"HIGH": "green", "MEDIUM": "yellow", "LOW": "dim"}.get(r.confidence, "dim")
+            detail_text = f"{r.detail} [{r.cwe_id}]" if r.cwe_id else r.detail
             table.add_row(
                 f"[{color}]{icon} {r.severity}[/{color}]",
+                f"[{conf_color}]{r.confidence}[/{conf_color}]",
                 r.url,
-                r.detail,
-                r.evidence[:100] if r.evidence else "",  # truncate long payloads for readability
+                detail_text,
+                r.evidence[:100] if r.evidence else "",
             )
 
-        console.print(table)
-        console.print()
+        renderables.append(table)
+
+    return renderables
+
+
+def print_results(results: list[ScanResult]) -> None:
+    """Print findings grouped by module as separate tables."""
+    if not results:
+        return
+    for renderable in build_results_renderables(results):
+        console.print(renderable)
+    console.print()

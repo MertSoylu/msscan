@@ -83,6 +83,26 @@ HTML_TEMPLATE = """\
             font-family: 'Consolas', monospace; font-size: 0.85rem;
             color: #f0883e; word-break: break-all; white-space: pre-wrap;
         }
+        .remediation-box {
+            margin-top: 0.75rem; padding: 0.75rem 1rem;
+            background: #0d2b1a; border: 1px solid #238636; border-radius: 4px;
+            font-size: 0.875rem; color: #3fb950;
+        }
+        .remediation-box strong { color: #56d364; }
+        .references-list {
+            margin-top: 0.5rem; padding-left: 1.2rem;
+            font-size: 0.85rem;
+        }
+        .references-list li { margin-bottom: 0.25rem; }
+        .references-list a { color: #58a6ff; text-decoration: none; }
+        .references-list a:hover { text-decoration: underline; }
+        .conf-badge {
+            display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+            font-size: 0.8rem; font-weight: bold;
+        }
+        .conf-HIGH   { background: #23373b; color: #3fb950; border: 1px solid #238636; }
+        .conf-MEDIUM { background: #2d2a1a; color: #d29922; border: 1px solid #d29922; }
+        .conf-LOW    { background: #21262d; color: #8b949e; border: 1px solid #484f58; }
 
         /* Empty state */
         .empty { text-align: center; margin: 3rem; color: #3fb950; font-size: 1.1rem; }
@@ -132,6 +152,12 @@ HTML_TEMPLATE = """\
                     <span class="detail-value">{{ r.scanner|upper }}</span>
                     <span class="detail-label">Severity</span>
                     <span class="detail-value">{{ r.severity }}</span>
+                    <span class="detail-label">Confidence</span>
+                    <span class="detail-value"><span class="conf-badge conf-{{ r.confidence }}">{{ r.confidence }}</span></span>
+                    {% if r.cwe_id %}
+                    <span class="detail-label">CWE</span>
+                    <span class="detail-value"><a href="https://cwe.mitre.org/data/definitions/{{ r.cwe_id[4:] }}.html" style="color:#58a6ff" target="_blank">{{ r.cwe_id }}</a></span>
+                    {% endif %}
                     <span class="detail-label">URL</span>
                     <span class="detail-value">{{ r.url }}</span>
                     <span class="detail-label">Detail</span>
@@ -141,6 +167,17 @@ HTML_TEMPLATE = """\
                 </div>
                 {% if r.evidence %}
                 <div class="evidence-box">{{ r.evidence }}</div>
+                {% endif %}
+                {% if r.remediation %}
+                <div class="remediation-box"><strong>🔧 Remediation:</strong> {{ r.remediation }}</div>
+                {% endif %}
+                {% if r.references %}
+                <ul class="references-list">
+                    <strong>📚 References:</strong>
+                    {% for ref in r.references %}
+                    <li><a href="{{ ref }}" target="_blank" rel="noopener">{{ ref }}</a></li>
+                    {% endfor %}
+                </ul>
                 {% endif %}
             </div>
         </details>

