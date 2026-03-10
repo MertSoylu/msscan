@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from typing import AsyncIterator
 
-from msscan.core.http_client import HttpClient
+from msscan.core.context import ScanContext
+from msscan.core.events import FindingEvent, ProgressEvent, ScanEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 
@@ -54,60 +56,106 @@ CORS_HEADERS = ["Access-Control-Allow-Origin"]
 class Scanner(BaseScanner):
     name = "headers"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
+        url = ctx.target
+        client = ctx.client
+
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=0,
+            total=100,
+            message="Starting headers scan",
+        )
+
+        if ctx.is_cancelled:
+            return
 
         resp = await client.get(url)
         headers = resp.headers
         lower_headers = {k.lower(): v for k, v in headers.items()}
 
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=20,
+            total=100,
+            message="Response received, analyzing security headers",
+        )
+
+        if ctx.is_cancelled:
+            return
+
         # Security header checks
         for header_name, info in SECURITY_HEADERS.items():
             if header_name.lower() not in lower_headers:
-                results.append(ScanResult(
+                yield FindingEvent(result=ScanResult(
                     scanner=self.name,
                     severity=info["severity"],
                     url=url,
                     detail=info["detail"],
                     evidence=f"'{header_name}' not found in response headers",
                     confidence="HIGH",
+                    confidence_score=0.9,
                     cwe_id="CWE-693",
                     remediation=info["remediation"],
                 ))
 
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=40,
+            total=100,
+            message="Security header presence checks complete",
+        )
+
+        if ctx.is_cancelled:
+            return
+
         # CSP analysis — when header IS present
         csp_value = lower_headers.get("content-security-policy")
         if csp_value:
-            self._analyze_csp(url, csp_value, results)
+            for finding in self._analyze_csp(url, csp_value):
+                yield finding
 
         # HSTS validation — when header IS present
         hsts_value = lower_headers.get("strict-transport-security")
         if hsts_value:
-            self._analyze_hsts(url, hsts_value, results)
+            for finding in self._analyze_hsts(url, hsts_value):
+                yield finding
+
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=70,
+            total=100,
+            message="CSP and HSTS analysis complete",
+        )
+
+        if ctx.is_cancelled:
+            return
 
         # CORS analysis
         acao = lower_headers.get("access-control-allow-origin")
         if acao and acao == "*":
-            results.append(ScanResult(
+            yield FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="MEDIUM",
                 url=url,
                 detail="CORS wildcard (*) — all origins are allowed",
                 evidence=f"Access-Control-Allow-Origin: {acao}",
                 confidence="HIGH",
+                confidence_score=0.9,
                 cwe_id="CWE-942",
             ))
 
         # Server header information leakage
         server = lower_headers.get("server")
         if server:
-            results.append(ScanResult(
+            yield FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="INFO",
                 url=url,
                 detail=f"Server header exposes version info: {server}",
                 evidence=f"Server: {server}",
                 confidence="HIGH",
+                confidence_score=0.8,
                 cwe_id="CWE-200",
             ))
 
@@ -115,20 +163,27 @@ class Scanner(BaseScanner):
         for header_name in INFO_LEAKAGE_HEADERS:
             value = lower_headers.get(header_name.lower())
             if value:
-                results.append(ScanResult(
+                yield FindingEvent(result=ScanResult(
                     scanner=self.name,
                     severity="INFO",
                     url=url,
                     detail=f"{header_name} exposes technology info: {value}",
                     evidence=f"{header_name}: {value}",
                     confidence="HIGH",
+                    confidence_score=0.8,
                     cwe_id="CWE-200",
                 ))
 
-        return results
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=100,
+            total=100,
+            message="Headers scan complete",
+        )
 
-    def _analyze_csp(self, url: str, csp_value: str, results: list[ScanResult]) -> None:
+    def _analyze_csp(self, url: str, csp_value: str) -> list[FindingEvent]:
         """Parse CSP directives and flag insecure patterns."""
+        findings: list[FindingEvent] = []
         directives = [d.strip() for d in csp_value.split(";") if d.strip()]
 
         has_unsafe_inline = False
@@ -150,40 +205,46 @@ class Scanner(BaseScanner):
                     has_wildcard = True
 
         if has_unsafe_inline:
-            results.append(ScanResult(
+            findings.append(FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="MEDIUM",
                 url=url,
                 detail="CSP allows unsafe-inline scripts",
                 evidence=f"Content-Security-Policy: {csp_value}",
                 confidence="HIGH",
+                confidence_score=0.9,
                 cwe_id="CWE-693",
-            ))
+            )))
 
         if has_unsafe_eval:
-            results.append(ScanResult(
+            findings.append(FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="MEDIUM",
                 url=url,
                 detail="CSP allows unsafe-eval",
                 evidence=f"Content-Security-Policy: {csp_value}",
                 confidence="HIGH",
+                confidence_score=0.9,
                 cwe_id="CWE-693",
-            ))
+            )))
 
         if has_wildcard:
-            results.append(ScanResult(
+            findings.append(FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="MEDIUM",
                 url=url,
                 detail="CSP allows wildcard sources",
                 evidence=f"Content-Security-Policy: {csp_value}",
                 confidence="HIGH",
+                confidence_score=0.9,
                 cwe_id="CWE-693",
-            ))
+            )))
 
-    def _analyze_hsts(self, url: str, hsts_value: str, results: list[ScanResult]) -> None:
+        return findings
+
+    def _analyze_hsts(self, url: str, hsts_value: str) -> list[FindingEvent]:
         """Validate HSTS header configuration."""
+        findings: list[FindingEvent] = []
         hsts_lower = hsts_value.lower()
 
         # Check max-age value
@@ -191,36 +252,41 @@ class Scanner(BaseScanner):
         if max_age_match:
             max_age = int(max_age_match.group(1))
             if max_age < 31536000:
-                results.append(ScanResult(
+                findings.append(FindingEvent(result=ScanResult(
                     scanner=self.name,
                     severity="LOW",
                     url=url,
                     detail=f"HSTS max-age too short ({max_age}s, recommended >= 31536000)",
                     evidence=f"Strict-Transport-Security: {hsts_value}",
                     confidence="HIGH",
+                    confidence_score=0.9,
                     cwe_id="CWE-693",
-                ))
+                )))
 
         # Check for includeSubDomains
         if "includesubdomains" not in hsts_lower:
-            results.append(ScanResult(
+            findings.append(FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="INFO",
                 url=url,
                 detail="HSTS header missing includeSubDomains directive",
                 evidence=f"Strict-Transport-Security: {hsts_value}",
                 confidence="HIGH",
+                confidence_score=0.8,
                 cwe_id="CWE-693",
-            ))
+            )))
 
         # Check for preload
         if "preload" not in hsts_lower:
-            results.append(ScanResult(
+            findings.append(FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="INFO",
                 url=url,
                 detail="HSTS header missing preload directive",
                 evidence=f"Strict-Transport-Security: {hsts_value}",
                 confidence="HIGH",
+                confidence_score=0.8,
                 cwe_id="CWE-693",
-            ))
+            )))
+
+        return findings

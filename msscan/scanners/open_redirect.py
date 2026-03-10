@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 
+from typing import AsyncIterator
 from urllib.parse import urlparse
 
-from msscan.core.http_client import HttpClient
+from msscan.core.context import ScanContext
+from msscan.core.events import ScanEvent, FindingEvent, ProgressEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 from msscan.utils.helpers import inject_param, extract_params
@@ -48,8 +50,10 @@ def _is_external(target_url: str, base_url: str) -> bool:
 class Scanner(BaseScanner):
     name = "open_redirect"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
+        url = ctx.target
+        client = ctx.client
+
         payloads = load_payloads("redirects.txt")
         if not payloads:
             payloads = self._default_payloads()
@@ -60,8 +64,14 @@ class Scanner(BaseScanner):
             if rp not in params:
                 params.append(rp)
 
-        for param_name in params:
+        for param_idx, param_name in enumerate(params):
+            if ctx.is_cancelled:
+                return
+
             for payload in payloads:
+                if ctx.is_cancelled:
+                    return
+
                 test_url = inject_param(url, param_name, payload)
                 try:
                     resp = await client.get(test_url)
@@ -71,7 +81,7 @@ class Scanner(BaseScanner):
                     if resp.status_code in (301, 302, 303, 307, 308):
                         location = resp.headers.get("location", "")
                         if _is_external(location, url):
-                            results.append(ScanResult(
+                            yield FindingEvent(result=ScanResult(
                                 scanner=self.name,
                                 severity="HIGH",
                                 url=test_url,
@@ -81,6 +91,7 @@ class Scanner(BaseScanner):
                                 ),
                                 evidence=f"Location: {location}",
                                 confidence="HIGH",
+                                confidence_score=0.9,
                                 cwe_id="CWE-601",
                                 remediation=_REMEDIATION,
                             ))
@@ -93,7 +104,7 @@ class Scanner(BaseScanner):
                         for js_match in _JS_REDIRECT_RE.finditer(body):
                             js_url = js_match.group(1)
                             if _is_external(js_url, url):
-                                results.append(ScanResult(
+                                yield FindingEvent(result=ScanResult(
                                     scanner=self.name,
                                     severity="MEDIUM",
                                     url=test_url,
@@ -103,6 +114,7 @@ class Scanner(BaseScanner):
                                     ),
                                     evidence=f"JS redirect: {js_match.group(0)[:120]}",
                                     confidence="MEDIUM",
+                                    confidence_score=0.6,
                                     cwe_id="CWE-601",
                                     remediation=_REMEDIATION,
                                 ))
@@ -116,7 +128,7 @@ class Scanner(BaseScanner):
                         for meta_match in _META_REFRESH_RE.finditer(body):
                             meta_url = meta_match.group(1).strip().rstrip('"\'>')
                             if _is_external(meta_url, url):
-                                results.append(ScanResult(
+                                yield FindingEvent(result=ScanResult(
                                     scanner=self.name,
                                     severity="MEDIUM",
                                     url=test_url,
@@ -126,6 +138,7 @@ class Scanner(BaseScanner):
                                     ),
                                     evidence=f"Meta refresh URL: {meta_url}",
                                     confidence="HIGH",
+                                    confidence_score=0.7,
                                     cwe_id="CWE-601",
                                     remediation=_REMEDIATION,
                                 ))
@@ -138,7 +151,12 @@ class Scanner(BaseScanner):
                 except Exception:
                     continue
 
-        return results
+            yield ProgressEvent(
+                scanner_name=self.name,
+                current=param_idx + 1,
+                total=len(params),
+                message=f"Tested parameter '{param_name}'",
+            )
 
     @staticmethod
     def _default_payloads() -> list[str]:

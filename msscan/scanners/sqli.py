@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 import time
+from typing import AsyncIterator
 
-from msscan.core.http_client import HttpClient
+from msscan.core.context import ScanContext
+from msscan.core.events import ScanEvent, FindingEvent, ProgressEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 from msscan.utils.helpers import inject_param, extract_params
@@ -56,61 +58,91 @@ _COMPILED_PATTERNS = [(p, re.compile(p, re.IGNORECASE)) for p in SQL_ERROR_PATTE
 class Scanner(BaseScanner):
     name = "sqli"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         payloads = load_payloads("sqli.txt")
         if not payloads:
             payloads = self._default_payloads()
 
-        params = extract_params(url)
+        params = extract_params(ctx.target)
         if not params:
             params = {p: ["1"] for p in ["id", "page", "cat", "item", "user", "product"]}
 
-        for param_name in params:
+        param_names = list(params.keys())
+        total_params = len(param_names)
+
+        for param_idx, param_name in enumerate(param_names):
+            if ctx.is_cancelled:
+                return
+
             # 1. Error-based SQLi
-            found = await self._test_error_based(url, param_name, payloads, client, results)
+            error_findings = await self._test_error_based(
+                ctx.target, param_name, payloads, ctx,
+            )
+            found = len(error_findings) > 0
+            for finding in error_findings:
+                yield FindingEvent(result=finding)
 
             # 2. Boolean-based blind SQLi (only if error-based was not found)
             if not found:
-                found = await self._test_boolean_based(url, param_name, client, results)
+                if ctx.is_cancelled:
+                    return
+                boolean_findings = await self._test_boolean_based(
+                    ctx.target, param_name, ctx,
+                )
+                found = len(boolean_findings) > 0
+                for finding in boolean_findings:
+                    yield FindingEvent(result=finding)
 
             # 3. Time-based blind SQLi (only if neither was found)
             if not found:
-                await self._test_time_based(url, param_name, client, results)
+                if ctx.is_cancelled:
+                    return
+                time_findings = await self._test_time_based(
+                    ctx.target, param_name, ctx,
+                )
+                for finding in time_findings:
+                    yield FindingEvent(result=finding)
 
-        return results
+            yield ProgressEvent(
+                scanner_name=self.name,
+                current=param_idx + 1,
+                total=total_params,
+                message=f"Tested parameter '{param_name}'",
+            )
 
     async def _test_error_based(
         self, url: str, param: str, payloads: list[str],
-        client: HttpClient, results: list[ScanResult],
-    ) -> bool:
+        ctx: ScanContext,
+    ) -> list[ScanResult]:
         for payload in payloads:
+            if ctx.is_cancelled:
+                return []
             test_url = inject_param(url, param, payload)
             try:
-                resp = await client.get(test_url)
+                resp = await ctx.client.get(test_url)
                 body = resp.text.lower()
 
                 for raw_pattern, compiled in _COMPILED_PATTERNS:
                     if compiled.search(body):
-                        results.append(ScanResult(
+                        return [ScanResult(
                             scanner=self.name,
                             severity="CRITICAL",
                             url=test_url,
                             detail=f"Error-based SQLi — SQL error in '{param}' parameter",
                             evidence=f"Pattern: {raw_pattern} | Payload: {payload}",
                             confidence="HIGH",
+                            confidence_score=0.95,
                             remediation=_REMEDIATION,
                             cwe_id="CWE-89",
-                        ))
-                        return True
+                        )]
             except Exception:
                 continue
-        return False
+        return []
 
     async def _test_boolean_based(
         self, url: str, param: str,
-        client: HttpClient, results: list[ScanResult],
-    ) -> bool:
+        ctx: ScanContext,
+    ) -> list[ScanResult]:
         true_payload = "1' AND '1'='1"
         false_payload = "1' AND '1'='2"
 
@@ -118,8 +150,8 @@ class Scanner(BaseScanner):
         false_url = inject_param(url, param, false_payload)
 
         try:
-            true_resp = await client.get(true_url)
-            false_resp = await client.get(false_url)
+            true_resp = await ctx.client.get(true_url)
+            false_resp = await ctx.client.get(false_url)
 
             true_len = len(true_resp.text)
             false_len = len(false_resp.text)
@@ -129,7 +161,7 @@ class Scanner(BaseScanner):
             pct_diff = diff / max_len
 
             if diff > 200 or pct_diff > 0.10:
-                results.append(ScanResult(
+                return [ScanResult(
                     scanner=self.name,
                     severity="HIGH",
                     url=true_url,
@@ -140,25 +172,27 @@ class Scanner(BaseScanner):
                         f"Difference: {diff} ({pct_diff:.1%})"
                     ),
                     confidence="MEDIUM",
+                    confidence_score=0.5,
                     remediation=_REMEDIATION,
                     cwe_id="CWE-89",
-                ))
-                return True
+                )]
         except Exception:
             pass
 
-        return False
+        return []
 
     async def _test_time_based(
         self, url: str, param: str,
-        client: HttpClient, results: list[ScanResult],
-    ) -> None:
+        ctx: ScanContext,
+    ) -> list[ScanResult]:
         # Measure baseline response time from 3 benign requests
         baselines: list[float] = []
         for _ in range(3):
+            if ctx.is_cancelled:
+                return []
             try:
                 t0 = time.monotonic()
-                await client.get(url)
+                await ctx.client.get(url)
                 baselines.append(time.monotonic() - t0)
             except Exception:
                 continue
@@ -180,14 +214,16 @@ class Scanner(BaseScanner):
             "1; SELECT pg_sleep(3)--",
         ]
         for payload in time_payloads:
+            if ctx.is_cancelled:
+                return []
             test_url = inject_param(url, param, payload)
             try:
                 t0 = time.monotonic()
-                await client.get(test_url)
+                await ctx.client.get(test_url)
                 elapsed = time.monotonic() - t0
 
                 if elapsed >= threshold:
-                    results.append(ScanResult(
+                    return [ScanResult(
                         scanner=self.name,
                         severity="HIGH",
                         url=test_url,
@@ -197,12 +233,14 @@ class Scanner(BaseScanner):
                             f"Baseline: {avg_baseline:.2f}s | Threshold: {threshold:.2f}s"
                         ),
                         confidence="MEDIUM",
+                        confidence_score=0.6,
                         remediation=_REMEDIATION,
                         cwe_id="CWE-89",
-                    ))
-                    return
+                    )]
             except Exception:
                 continue
+
+        return []
 
     @staticmethod
     def _default_payloads() -> list[str]:

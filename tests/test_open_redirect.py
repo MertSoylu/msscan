@@ -8,6 +8,7 @@ import respx
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.open_redirect import Scanner, _is_external
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -51,7 +52,7 @@ async def test_http_redirect_flagged_high(scanner):
             )
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://target.com/redirect?url=test", client)
+            results = await collect_results(scanner, "https://target.com/redirect?url=test", client)
 
     high = [r for r in results if r.severity == "HIGH"]
     assert len(high) > 0
@@ -68,7 +69,7 @@ async def test_js_redirect_flagged_medium(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://target.com/redirect?url=test", client)
+            results = await collect_results(scanner, "https://target.com/redirect?url=test", client)
 
     medium = [r for r in results if r.severity == "MEDIUM" and "JavaScript" in r.detail]
     assert len(medium) > 0
@@ -84,7 +85,7 @@ async def test_meta_refresh_flagged_medium(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://target.com/redirect?url=test", client)
+            results = await collect_results(scanner, "https://target.com/redirect?url=test", client)
 
     medium = [r for r in results if r.severity == "MEDIUM" and "meta-refresh" in r.detail]
     assert len(medium) > 0
@@ -103,7 +104,7 @@ async def test_same_domain_redirect_not_flagged(scanner):
             )
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://target.com/redirect?url=test", client)
+            results = await collect_results(scanner, "https://target.com/redirect?url=test", client)
 
     assert len(results) == 0
 
@@ -116,6 +117,6 @@ async def test_no_redirect_no_finding(scanner):
             return_value=httpx.Response(200, text="<html>Welcome</html>")
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://safe.com/page?url=test", client)
+            results = await collect_results(scanner, "https://safe.com/page?url=test", client)
 
     assert len(results) == 0

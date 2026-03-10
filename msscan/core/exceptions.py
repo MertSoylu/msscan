@@ -17,3 +17,11 @@ class RateLimitedError(Exception):
             f"Target server is rate-limiting requests (HTTP {status_code}). "
             f"Current rate-limit: {current_rate} req/s"
         )
+
+
+class ScanConfigError(Exception):
+    """Raised when scan configuration is invalid."""
+
+
+class ScanCancelledError(Exception):
+    """Raised when a scan is cancelled via cancel_token."""

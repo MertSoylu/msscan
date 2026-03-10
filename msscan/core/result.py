@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 
@@ -16,8 +17,17 @@ class ScanResult:
     detail: str         # human-readable description of the finding
     evidence: str = ""  # payload or response snippet that proves the finding
     confidence: str = "MEDIUM"  # HIGH | MEDIUM | LOW
+    confidence_score: float = 0.5  # 0.0-1.0 numeric confidence for CI/CD thresholding
     remediation: str = ""  # actionable fix guidance
     cwe_id: str = ""  # e.g. "CWE-79"
     references: list[str] = field(default_factory=list)
     # ISO 8601 timestamp with seconds precision, auto-set at creation time
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+
+    def to_dict(self) -> dict:
+        """Convert to a plain dictionary for serialization."""
+        return asdict(self)
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        return json.dumps(self.to_dict(), ensure_ascii=False)

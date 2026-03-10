@@ -8,6 +8,7 @@ import respx
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.xss import Scanner, _detect_reflection_context
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -69,7 +70,7 @@ async def test_reflected_xss_detected(scanner):
         respx.get("https://vuln.com/search").mock(side_effect=handler)
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/search?q=test", client)
+            results = await collect_results(scanner, "https://vuln.com/search?q=test", client)
 
     assert len(results) > 0
     assert results[0].severity in ("CRITICAL", "HIGH")
@@ -89,7 +90,7 @@ async def test_xss_javascript_context_critical(scanner):
         respx.get("https://vuln.com/js").mock(side_effect=handler)
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/js?q=test", client)
+            results = await collect_results(scanner, "https://vuln.com/js?q=test", client)
 
     assert len(results) > 0
     severities = {r.severity for r in results}
@@ -109,7 +110,7 @@ async def test_xss_encoded_response_downgraded(scanner):
         respx.get("https://safe.com/search").mock(side_effect=handler)
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://safe.com/search?q=test", client)
+            results = await collect_results(scanner, "https://safe.com/search?q=test", client)
 
     # All findings should be INFO (encoded context) or nothing — never HIGH/CRITICAL
     high_findings = [r for r in results if r.severity in ("HIGH", "CRITICAL")]
@@ -125,6 +126,6 @@ async def test_no_xss_when_not_reflected(scanner):
         )
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://safe.com/search?q=test", client)
+            results = await collect_results(scanner, "https://safe.com/search?q=test", client)
 
     assert len(results) == 0

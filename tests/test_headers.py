@@ -8,6 +8,7 @@ import respx
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.headers import Scanner
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ async def test_missing_security_headers(scanner):
             return_value=httpx.Response(200, text="<html></html>")
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://example.com/", client)
+            results = await collect_results(scanner, "https://example.com/", client)
 
     # En az HSTS ve CSP eksikliği rapor edilmeli
     scanner_names = [r.detail for r in results]
@@ -48,7 +49,7 @@ async def test_all_headers_present(scanner):
             return_value=httpx.Response(200, headers=headers, text="<html></html>")
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://secure.com/", client)
+            results = await collect_results(scanner, "https://secure.com/", client)
 
     # Eksik header bulgusu olmamalı (sadece INFO seviyesinde olabilir)
     non_info = [r for r in results if r.severity != "INFO"]
@@ -73,7 +74,7 @@ async def test_cors_wildcard_detected(scanner):
             return_value=httpx.Response(200, headers=headers, text="<html></html>")
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://cors.com/", client)
+            results = await collect_results(scanner, "https://cors.com/", client)
 
     cors_results = [r for r in results if "CORS" in r.detail]
     assert len(cors_results) == 1

@@ -9,10 +9,13 @@ import asyncio
 import random
 import string
 
+from typing import AsyncIterator
+
 import dns.asyncresolver
 import dns.resolver
 
-from msscan.core.http_client import HttpClient
+from msscan.core.context import ScanContext
+from msscan.core.events import ScanEvent, FindingEvent, ProgressEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 from msscan.utils.payloads import load_payloads
@@ -46,8 +49,9 @@ VULNERABLE_CNAME_TARGETS: list[str] = [
 class Scanner(BaseScanner):
     name = "subdomain"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
+        url = ctx.target
+
         wordlist = load_payloads("subdomains.txt")
         if not wordlist:
             wordlist = self._default_wordlist()
@@ -66,19 +70,32 @@ class Scanner(BaseScanner):
         except Exception:
             pass  # No wildcard — this is the common/expected case.
 
+        if ctx.is_cancelled:
+            return
+
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=0,
+            total=len(wordlist),
+            message="Wildcard detection complete, starting DNS brute-force",
+        )
+
         # --- Parallel DNS queries via semaphore (prevents flooding) ---
         sem = asyncio.Semaphore(20)
         tasks = [self._resolve(sub, domain, sem) for sub in wordlist]
         resolved = await asyncio.gather(*tasks)
 
-        for subdomain, ips, cnames in resolved:
+        for idx, (subdomain, ips, cnames) in enumerate(resolved):
+            if ctx.is_cancelled:
+                return
+
             full = f"{subdomain}.{domain}"
             full_url = f"https://{full}"
 
             # Check for CNAME takeover opportunities regardless of wildcard.
             takeover_result = self._check_takeover(full_url, ips, cnames)
             if takeover_result is not None:
-                results.append(takeover_result)
+                yield FindingEvent(result=takeover_result)
 
             if not ips:
                 continue
@@ -87,7 +104,7 @@ class Scanner(BaseScanner):
             if wildcard_ips and set(ips).issubset(wildcard_ips):
                 continue
 
-            results.append(ScanResult(
+            yield FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="INFO",
                 url=full_url,
@@ -95,9 +112,16 @@ class Scanner(BaseScanner):
                 evidence=f"IP: {', '.join(ips)}",
                 cwe_id="",
                 confidence="HIGH",
+                confidence_score=0.9,
             ))
 
-        return results
+            if (idx + 1) % 10 == 0 or idx + 1 == len(resolved):
+                yield ProgressEvent(
+                    scanner_name=self.name,
+                    current=idx + 1,
+                    total=len(resolved),
+                    message=f"Processed {idx + 1}/{len(resolved)} subdomains",
+                )
 
     @staticmethod
     async def _resolve(
@@ -169,6 +193,7 @@ class Scanner(BaseScanner):
                 detail="Potential subdomain takeover",
                 evidence=cname_evidence,
                 confidence="HIGH",
+                confidence_score=0.85,
                 cwe_id="CWE-345",
                 remediation="Remove dangling DNS record or reclaim the service",
             )
@@ -181,6 +206,7 @@ class Scanner(BaseScanner):
             detail="CNAME points to third-party service",
             evidence=cname_evidence,
             confidence="MEDIUM",
+            confidence_score=0.6,
             cwe_id="CWE-345",
             remediation="Remove dangling DNS record or reclaim the service",
         )

@@ -8,6 +8,7 @@ import respx
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.csrf import Scanner, _shannon_entropy
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ async def test_csrf_no_token_no_samesite_high(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/form", client)
+            results = await collect_results(scanner, "https://vuln.com/form", client)
 
     high = [r for r in results if r.severity == "HIGH"]
     assert len(high) > 0
@@ -60,7 +61,7 @@ async def test_csrf_get_state_changing_flagged(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/page", client)
+            results = await collect_results(scanner, "https://vuln.com/page", client)
 
     medium = [r for r in results if r.severity == "MEDIUM"]
     assert len(medium) > 0
@@ -75,7 +76,7 @@ async def test_csrf_get_benign_not_flagged(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://example.com/page", client)
+            results = await collect_results(scanner, "https://example.com/page", client)
 
     assert len(results) == 0
 
@@ -94,7 +95,7 @@ async def test_csrf_meta_token_accepted(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://protected.com/form", client)
+            results = await collect_results(scanner, "https://protected.com/form", client)
 
     high = [r for r in results if r.severity == "HIGH"]
     assert len(high) == 0
@@ -113,7 +114,7 @@ async def test_csrf_response_header_token_accepted(scanner):
             )
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://protected.com/form", client)
+            results = await collect_results(scanner, "https://protected.com/form", client)
 
     high = [r for r in results if r.severity == "HIGH"]
     assert len(high) == 0
@@ -135,7 +136,7 @@ async def test_csrf_weak_token_entropy_flagged(scanner):
             return_value=httpx.Response(200, text=body)
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://weaktoken.com/form", client)
+            results = await collect_results(scanner, "https://weaktoken.com/form", client)
 
     low = [r for r in results if r.severity == "LOW" and "entropy" in r.detail.lower()]
     assert len(low) > 0
@@ -154,7 +155,7 @@ async def test_csrf_samesite_cookie_downgrades_to_low(scanner):
             )
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://samesite.com/form", client)
+            results = await collect_results(scanner, "https://samesite.com/form", client)
 
     high = [r for r in results if r.severity == "HIGH"]
     low = [r for r in results if r.severity == "LOW"]

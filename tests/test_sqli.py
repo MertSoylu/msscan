@@ -8,6 +8,7 @@ import respx
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.sqli import Scanner
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ async def test_error_based_sqli_detected(scanner):
         respx.get("https://vuln.com/item").mock(side_effect=handler)
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/item?id=1", client)
+            results = await collect_results(scanner, "https://vuln.com/item?id=1", client)
 
     assert len(results) > 0
     assert results[0].severity == "CRITICAL"
@@ -47,7 +48,7 @@ async def test_no_sqli_on_safe_site(scanner):
         )
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://safe.com/item?id=1", client)
+            results = await collect_results(scanner, "https://safe.com/item?id=1", client)
 
     sqli_results = [r for r in results if r.severity in ("CRITICAL", "HIGH")]
     assert len(sqli_results) == 0

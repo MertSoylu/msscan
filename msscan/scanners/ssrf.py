@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from msscan.core.http_client import HttpClient
+from typing import AsyncIterator
+
+from msscan.core.context import ScanContext
+from msscan.core.events import ScanEvent, FindingEvent, ProgressEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 from msscan.utils.helpers import inject_param, extract_params
@@ -54,8 +57,10 @@ _BENIGN_VALUE = "https://example.com"
 class Scanner(BaseScanner):
     name = "ssrf"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
+        url = ctx.target
+        client = ctx.client
+
         payloads = load_payloads("ssrf.txt")
         if not payloads:
             payloads = self._default_payloads()
@@ -65,7 +70,10 @@ class Scanner(BaseScanner):
             if sp not in params:
                 params.append(sp)
 
-        for param_name in params:
+        for param_idx, param_name in enumerate(params):
+            if ctx.is_cancelled:
+                return
+
             # Fetch baseline response with a safe, benign URL value.
             baseline_body: str | None = None
             baseline_len: int = 0
@@ -78,6 +86,9 @@ class Scanner(BaseScanner):
                 pass
 
             for payload in payloads:
+                if ctx.is_cancelled:
+                    return
+
                 test_url = inject_param(url, param_name, payload)
                 try:
                     resp = await client.get(test_url)
@@ -98,7 +109,9 @@ class Scanner(BaseScanner):
                                 continue  # Indicator was already in baseline
 
                         severity = "CRITICAL" if specificity == "HIGH" else "HIGH"
-                        results.append(ScanResult(
+                        confidence = "HIGH" if specificity == "HIGH" else "MEDIUM"
+                        confidence_score = 0.95 if specificity == "HIGH" else 0.7
+                        yield FindingEvent(result=ScanResult(
                             scanner=self.name,
                             severity=severity,
                             url=test_url,
@@ -107,7 +120,8 @@ class Scanner(BaseScanner):
                                 f"({description})"
                             ),
                             evidence=f"Indicator: {pattern!r} | Payload: {payload}",
-                            confidence="HIGH" if specificity == "HIGH" else "MEDIUM",
+                            confidence=confidence,
+                            confidence_score=confidence_score,
                             cwe_id="CWE-918",
                             remediation=_REMEDIATION,
                         ))
@@ -119,7 +133,12 @@ class Scanner(BaseScanner):
                 except Exception:
                     continue
 
-        return results
+            yield ProgressEvent(
+                scanner_name=self.name,
+                current=param_idx + 1,
+                total=len(params),
+                message=f"Tested parameter '{param_name}'",
+            )
 
     @staticmethod
     def _default_payloads() -> list[str]:

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 import re
+from typing import AsyncIterator
 
-from msscan.core.http_client import HttpClient
+from msscan.core.context import ScanContext
+from msscan.core.events import FindingEvent, ProgressEvent, ScanEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 
@@ -55,16 +57,40 @@ def _shannon_entropy(value: str) -> float:
 class Scanner(BaseScanner):
     name = "csrf"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
+        url = ctx.target
+        client = ctx.client
+
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=0,
+            total=100,
+            message="Starting CSRF scan",
+        )
+
+        if ctx.is_cancelled:
+            return
 
         resp = await client.get(url)
         body = resp.text
         resp_headers_lower = {k.lower(): v for k, v in resp.headers.items()}
 
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=20,
+            total=100,
+            message="Page fetched, scanning for forms",
+        )
+
         forms = FORM_PATTERN.findall(body)
         if not forms:
-            return results
+            yield ProgressEvent(
+                scanner_name=self.name,
+                current=100,
+                total=100,
+                message="No forms found, CSRF scan complete",
+            )
+            return
 
         cookies_safe = self._check_samesite_cookies(resp)
 
@@ -76,7 +102,11 @@ class Scanner(BaseScanner):
             name in resp_headers_lower for name in _HEADER_TOKEN_NAMES
         )
 
+        total_forms = len(forms)
         for i, form_html in enumerate(forms):
+            if ctx.is_cancelled:
+                return
+
             method_match = METHOD_PATTERN.search(form_html)
             method = method_match.group(1).upper() if method_match else "GET"
 
@@ -87,13 +117,14 @@ class Scanner(BaseScanner):
             if method == "GET":
                 if not _STATE_CHANGING_KEYWORDS.search(action):
                     continue
-                results.append(ScanResult(
+                yield FindingEvent(result=ScanResult(
                     scanner=self.name,
                     severity="MEDIUM",
                     url=url,
                     detail=f"CSRF risk — GET form with state-changing action: {action}",
                     evidence=f"Method: GET | Action: {action}",
                     confidence="MEDIUM",
+                    confidence_score=0.6,
                     cwe_id="CWE-352",
                     remediation=_REMEDIATION,
                 ))
@@ -128,30 +159,33 @@ class Scanner(BaseScanner):
             )
 
             if not has_csrf_token and not cookies_safe:
-                results.append(ScanResult(
+                yield FindingEvent(result=ScanResult(
                     scanner=self.name,
                     severity="HIGH",
                     url=url,
                     detail=f"No CSRF protection — Form #{i + 1} ({method} {action})",
                     evidence=f"No CSRF token found. Input fields: {', '.join(input_names[:5])}",
                     confidence="HIGH",
+                    confidence_score=0.9,
                     cwe_id="CWE-352",
                     remediation=_REMEDIATION,
                 ))
             elif not has_csrf_token and cookies_safe:
-                results.append(ScanResult(
+                yield FindingEvent(result=ScanResult(
                     scanner=self.name,
                     severity="LOW",
                     url=url,
                     detail=f"No CSRF token but SameSite cookie present — Form #{i + 1}",
                     evidence="SameSite cookie protection found, but token-based protection is recommended",
                     confidence="MEDIUM",
+                    confidence_score=0.5,
                     cwe_id="CWE-352",
                     remediation=_REMEDIATION,
                 ))
             elif has_csrf_token and token_value:
                 # Check token quality.
-                self._check_token_quality(url, token_value, results)
+                for event in self._check_token_quality(url, token_value):
+                    yield event
 
                 # Double-submit cookie: token value matches a cookie value (weak pattern).
                 cookie_values = {
@@ -159,13 +193,14 @@ class Scanner(BaseScanner):
                     for v in [pair.split("=", 1)[-1]] if v.strip()
                 }
                 if token_value in cookie_values:
-                    results.append(ScanResult(
+                    yield FindingEvent(result=ScanResult(
                         scanner=self.name,
                         severity="LOW",
                         url=url,
                         detail=f"Double-submit cookie pattern — CSRF token matches cookie value (Form #{i + 1})",
                         evidence=f"Token value appears in Set-Cookie header",
                         confidence="LOW",
+                        confidence_score=0.3,
                         cwe_id="CWE-352",
                         remediation=(
                             "Double-submit cookie is weaker than server-side validation. "
@@ -173,27 +208,42 @@ class Scanner(BaseScanner):
                         ),
                     ))
 
-        return results
+            yield ProgressEvent(
+                scanner_name=self.name,
+                current=20 + int(80 * (i + 1) / total_forms),
+                total=100,
+                message=f"Analyzed form {i + 1}/{total_forms}",
+            )
+
+        yield ProgressEvent(
+            scanner_name=self.name,
+            current=100,
+            total=100,
+            message="CSRF scan complete",
+        )
 
     def _check_token_quality(
-        self, url: str, token_value: str, results: list[ScanResult]
-    ) -> None:
+        self, url: str, token_value: str
+    ) -> list[FindingEvent]:
         """Flag CSRF tokens that appear cryptographically weak."""
+        findings: list[FindingEvent] = []
         entropy = _shannon_entropy(token_value)
         if len(token_value) < 8 or entropy < 3.0:
-            results.append(ScanResult(
+            findings.append(FindingEvent(result=ScanResult(
                 scanner=self.name,
                 severity="LOW",
                 url=url,
                 detail=f"Weak CSRF token — low entropy ({entropy:.2f} bits/char, length {len(token_value)})",
                 evidence=f"Token: {token_value[:20]}{'...' if len(token_value) > 20 else ''}",
                 confidence="MEDIUM",
+                confidence_score=0.5,
                 cwe_id="CWE-352",
                 remediation=(
                     "Use a cryptographically secure random generator (e.g. secrets.token_hex(32)) "
                     "to produce CSRF tokens with sufficient entropy."
                 ),
-            ))
+            )))
+        return findings
 
     @staticmethod
     def _check_samesite_cookies(resp) -> bool:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from typing import AsyncIterator
 
-from msscan.core.http_client import HttpClient
+from msscan.core.context import ScanContext
+from msscan.core.events import ScanEvent, FindingEvent, ProgressEvent
 from msscan.core.result import ScanResult
 from msscan.scanners.base import BaseScanner
 from msscan.utils.helpers import inject_param, extract_params
@@ -79,25 +81,42 @@ _CONTEXT_MAP: dict[str, tuple[str, str]] = {
     "encoded":        ("INFO",     "LOW"),
 }
 
+# Numeric confidence_score mapping per context
+_CONFIDENCE_SCORE_MAP: dict[str, float] = {
+    "javascript":     0.95,
+    "html_body":      0.9,
+    "html_attribute": 0.7,
+    "html_comment":   0.3,
+    "encoded":        0.2,
+}
+
 
 class Scanner(BaseScanner):
     name = "xss"
 
-    async def scan(self, url: str, client: HttpClient) -> list[ScanResult]:
-        results: list[ScanResult] = []
+    async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         payloads = load_payloads("xss.txt")
         if not payloads:
             payloads = self._default_payloads()
 
-        params = extract_params(url)
+        params = extract_params(ctx.target)
         if not params:
             params = {p: ["test"] for p in ["q", "search", "query", "s", "id", "page", "name"]}
 
-        for param_name in params:
+        param_names = list(params.keys())
+        total_params = len(param_names)
+
+        for param_idx, param_name in enumerate(param_names):
+            if ctx.is_cancelled:
+                return
+
             for payload in payloads:
-                test_url = inject_param(url, param_name, payload)
+                if ctx.is_cancelled:
+                    return
+
+                test_url = inject_param(ctx.target, param_name, payload)
                 try:
-                    resp = await client.get(test_url)
+                    resp = await ctx.client.get(test_url)
                     body = resp.text
 
                     context = _detect_reflection_context(body, payload)
@@ -105,7 +124,8 @@ class Scanner(BaseScanner):
                         continue
 
                     severity, confidence = _CONTEXT_MAP[context]
-                    results.append(ScanResult(
+                    confidence_score = _CONFIDENCE_SCORE_MAP[context]
+                    yield FindingEvent(result=ScanResult(
                         scanner=self.name,
                         severity=severity,
                         url=test_url,
@@ -115,6 +135,7 @@ class Scanner(BaseScanner):
                         ),
                         evidence=payload,
                         confidence=confidence,
+                        confidence_score=confidence_score,
                         cwe_id="CWE-79",
                         remediation=_REMEDIATION,
                     ))
@@ -122,7 +143,12 @@ class Scanner(BaseScanner):
                 except Exception:
                     continue
 
-        return results
+            yield ProgressEvent(
+                scanner_name=self.name,
+                current=param_idx + 1,
+                total=total_params,
+                message=f"Tested parameter '{param_name}'",
+            )
 
     @staticmethod
     def _default_payloads() -> list[str]:

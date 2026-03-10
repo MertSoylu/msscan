@@ -8,6 +8,7 @@ import pytest
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.subdomain import Scanner
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -94,7 +95,7 @@ async def test_wildcard_filters_false_positives(scanner):
         import respx
         with respx.mock:
             async with HttpClient() as client:
-                results = await scanner.scan("https://example.com", client)
+                results = await collect_results(scanner, "https://example.com", client)
 
     # All subdomains resolve to wildcard IP → no INFO findings from A records
     info_findings = [r for r in results if r.severity == "INFO"]
@@ -125,7 +126,7 @@ async def test_cname_takeover_high_no_a_record(scanner):
         import respx
         with respx.mock:
             async with HttpClient() as client:
-                results = await scanner.scan("https://example.com", client)
+                results = await collect_results(scanner, "https://example.com", client)
 
     high = [r for r in results if r.severity == "HIGH" and "takeover" in r.detail.lower()]
     assert len(high) > 0
@@ -154,7 +155,7 @@ async def test_clean_subdomain_produces_info(scanner):
         import respx
         with respx.mock:
             async with HttpClient() as client:
-                results = await scanner.scan("https://example.com", client)
+                results = await collect_results(scanner, "https://example.com", client)
 
     info = [r for r in results if r.severity == "INFO"]
     assert len(info) > 0

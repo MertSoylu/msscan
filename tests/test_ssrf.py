@@ -8,6 +8,7 @@ import respx
 
 from msscan.core.http_client import HttpClient
 from msscan.scanners.ssrf import Scanner
+from tests.conftest import collect_results
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ async def test_etc_passwd_indicator_critical(scanner):
         respx.get("https://vuln.com/fetch").mock(side_effect=handler)
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/fetch?url=test", client)
+            results = await collect_results(scanner, "https://vuln.com/fetch?url=test", client)
 
     critical = [r for r in results if r.severity == "CRITICAL"]
     assert len(critical) > 0
@@ -50,7 +51,7 @@ async def test_aws_metadata_indicator_critical(scanner):
         respx.get("https://vuln.com/fetch").mock(side_effect=handler)
 
         async with HttpClient() as client:
-            results = await scanner.scan("https://vuln.com/fetch?url=https://example.com", client)
+            results = await collect_results(scanner, "https://vuln.com/fetch?url=https://example.com", client)
 
     critical = [r for r in results if r.severity == "CRITICAL"]
     assert len(critical) > 0
@@ -68,7 +69,7 @@ async def test_generic_body_without_indicator_not_flagged(scanner):
             )
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://safe.com/page?url=test", client)
+            results = await collect_results(scanner, "https://safe.com/page?url=test", client)
 
     # "localhost" alone is no longer a trigger — expect no findings
     critical_high = [r for r in results if r.severity in ("CRITICAL", "HIGH")]
@@ -83,7 +84,7 @@ async def test_no_ssrf_on_safe_site(scanner):
             return_value=httpx.Response(200, text="<html>Welcome!</html>")
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://safe.com/page?url=test", client)
+            results = await collect_results(scanner, "https://safe.com/page?url=test", client)
 
     assert len(results) == 0
 
@@ -100,7 +101,7 @@ async def test_differential_medium_indicator_filtered(scanner):
             )
         )
         async with HttpClient() as client:
-            results = await scanner.scan("https://stable.com/page?url=test", client)
+            results = await collect_results(scanner, "https://stable.com/page?url=test", client)
 
     # "internal server error" is a MEDIUM indicator; if it's in baseline too, it should be filtered
     assert len(results) == 0
