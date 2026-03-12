@@ -58,7 +58,6 @@ def run_headless_scan(
     # Determine rate limit
     profile_defaults = PROFILE_DEFAULTS.get(speed_profile.value, {})
     rate_limit = rate_limit_override or profile_defaults.get("rate_limit", 10)
-    jitter = profile_defaults.get("jitter", (0.0, 0.0))
 
     config = ScanConfig(
         targets=targets,
@@ -155,11 +154,11 @@ def run_headless_scan(
 
     if all_results:
         console.print(
-            f"\n[bold green]✅ Scan complete. Findings detected but below fail-on threshold.[/bold green]"
+            "\n[bold green]✅ Scan complete. Findings detected but below fail-on threshold.[/bold green]"
         )
     else:
         console.print(
-            f"\n[bold green]✅ Scan complete. No vulnerabilities found.[/bold green]"
+            "\n[bold green]✅ Scan complete. No vulnerabilities found.[/bold green]"
         )
     return 0
 

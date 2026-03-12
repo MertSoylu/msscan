@@ -80,7 +80,7 @@ def run_module_selector(
     if console.size.height < 20:
         # Terminal too small — fall back to inline display
         console.print("[yellow]Terminal too small for interactive selector.[/yellow]")
-        console.print(f"[dim]Use: set modules xss,sqli,...[/dim]")
+        console.print("[dim]Use: set modules xss,sqli,...[/dim]")
         return None
 
     modules = list(all_modules)

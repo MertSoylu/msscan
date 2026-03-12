@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rich.console import Console, Group
+from rich.console import Console
 from rich.text import Text
 
 from msscan.core.result import ScanResult

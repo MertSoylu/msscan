@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch
 
 import pytest
-import httpx
 import respx
 
-from msscan.core.config import ScanConfig
-from msscan.core.context import ScanContext
 from msscan.core.engine import ScanEngine
 from msscan.core.events import FindingEvent, ErrorEvent, ProgressEvent
 from msscan.core.result import ScanResult

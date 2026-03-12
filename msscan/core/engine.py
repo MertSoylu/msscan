@@ -8,7 +8,7 @@ from typing import AsyncIterator
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-from msscan.core.config import ScanConfig, SpeedProfile
+from msscan.core.config import ScanConfig
 from msscan.core.context import ScanContext
 from msscan.core.events import ScanEvent, FindingEvent, ProgressEvent, ErrorEvent
 from msscan.core.http_client import HttpClient

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from msscan.core.config import (
     ScanConfig,

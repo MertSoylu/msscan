@@ -10,7 +10,6 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from msscan import __version__
 from msscan.core.engine import ScanEngine
 from msscan.core.exceptions import RateLimitedError
 from msscan.core.plugins import discover_scanners
@@ -68,7 +67,7 @@ class MsscanShell(cmd.Cmd):
         try:
             while True:
                 try:
-                    console.print(f"[bold cyan]msscan>[/bold cyan] ", end="")
+                    console.print("[bold cyan]msscan>[/bold cyan] ", end="")
                     line = input()
                 except EOFError:
                     line = "exit"
@@ -130,7 +129,7 @@ class MsscanShell(cmd.Cmd):
                 )
             elif not p.suffix:
                 casted_value = casted_value + ".html"
-                console.print(f"[dim]  → .html extension added automatically[/dim]")
+                console.print("[dim]  → .html extension added automatically[/dim]")
 
         if key == "rate-limit":
             if casted_value < RATE_LIMIT_MIN or casted_value > RATE_LIMIT_MAX:

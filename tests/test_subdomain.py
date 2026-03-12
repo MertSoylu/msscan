@@ -91,7 +91,6 @@ async def test_wildcard_filters_false_positives(scanner):
         instance.resolve = AsyncMock(side_effect=mock_resolve)
         MockResolver.return_value = instance
 
-        import httpx
         import respx
         with respx.mock:
             async with HttpClient() as client:

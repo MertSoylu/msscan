@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from msscan.core.result import ScanResult
 from msscan.cli.headless import run_headless_scan
@@ -49,7 +48,7 @@ def test_headless_invalid_profile_returns_3():
 
 def test_headless_clean_scan_returns_0():
     """No findings → exit code 0."""
-    with patch("msscan.cli.headless.ScanEngine") as MockEngine:
+    with patch("msscan.cli.headless.ScanEngine"):
         instance = MagicMock()
         instance.run = MagicMock(return_value=[])
         # Make asyncio.run call the mock

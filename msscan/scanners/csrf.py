@@ -232,7 +232,7 @@ class Scanner(BaseScanner):
                         severity="LOW",
                         url=url,
                         detail=f"Double-submit cookie pattern — CSRF token matches cookie value (Form #{i + 1})",
-                        evidence=f"Token value appears in Set-Cookie header",
+                        evidence="Token value appears in Set-Cookie header",
                         confidence="LOW",
                         confidence_score=0.3,
                         cvss_score=_CVSS_CSRF_LOW[0],

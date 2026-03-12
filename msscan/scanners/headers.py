@@ -259,7 +259,6 @@ class Scanner(BaseScanner):
         has_data_uri = False
         has_http_source = False
         has_default_src = False
-        has_upgrade_insecure = False
 
         for directive in directives:
             parts = directive.split()
@@ -269,8 +268,6 @@ class Scanner(BaseScanner):
 
             if directive_name == "default-src":
                 has_default_src = True
-            if directive_name == "upgrade-insecure-requests":
-                has_upgrade_insecure = True
 
             sources = parts[1:] if len(parts) > 1 else []
 

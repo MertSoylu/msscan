@@ -102,8 +102,6 @@ async def test_time_based_sqli_detected_with_confirmation(scanner):
     import time
 
     with respx.mock:
-        request_times = {}
-
         def handler(request):
             param_id = request.url.params.get("id", "")
             if "SLEEP(3)" in param_id or "pg_sleep(3)" in param_id:
@@ -119,7 +117,6 @@ async def test_time_based_sqli_detected_with_confirmation(scanner):
             results = await collect_results(scanner, "https://vuln.com/item?id=1", client)
 
     # Should detect time-based SQLi
-    time_findings = [r for r in results if "Time-based" in r.detail]
     # Note: This test may be flaky depending on system timing.
     # For now, we just verify the scanner runs without errors.
     assert isinstance(results, list)
