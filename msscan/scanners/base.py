@@ -42,4 +42,4 @@ class BaseScanner(ABC):
     @property
     def version(self) -> str:
         """Scanner version string."""
-        return "2.0"
+        return "1.0"

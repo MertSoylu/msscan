@@ -79,3 +79,104 @@ async def test_cors_wildcard_detected(scanner):
     cors_results = [r for r in results if "CORS" in r.detail]
     assert len(cors_results) == 1
     assert cors_results[0].severity == "MEDIUM"
+
+
+@pytest.mark.asyncio
+async def test_csp_unsafe_inline_detected(scanner):
+    """CSP with unsafe-inline should be flagged."""
+    headers = {
+        "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'",
+        "Strict-Transport-Security": "max-age=31536000",
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+    }
+    with respx.mock:
+        respx.get("https://example.com/").mock(
+            return_value=httpx.Response(200, headers=headers, text="<html></html>")
+        )
+        async with HttpClient() as client:
+            results = await collect_results(scanner, "https://example.com/", client)
+
+    unsafe_inline = [r for r in results if "unsafe-inline" in r.detail]
+    assert len(unsafe_inline) > 0
+    assert unsafe_inline[0].severity == "MEDIUM"
+
+
+@pytest.mark.asyncio
+async def test_csp_unsafe_eval_detected(scanner):
+    """CSP with unsafe-eval should be flagged."""
+    headers = {
+        "Content-Security-Policy": "script-src 'unsafe-eval'",
+        "Strict-Transport-Security": "max-age=31536000",
+    }
+    with respx.mock:
+        respx.get("https://example.com/").mock(
+            return_value=httpx.Response(200, headers=headers, text="<html></html>")
+        )
+        async with HttpClient() as client:
+            results = await collect_results(scanner, "https://example.com/", client)
+
+    unsafe_eval = [r for r in results if "unsafe-eval" in r.detail]
+    assert len(unsafe_eval) > 0
+    assert unsafe_eval[0].severity == "MEDIUM"
+
+
+@pytest.mark.asyncio
+async def test_csp_data_uri_detected(scanner):
+    """CSP allowing data: URIs should be flagged."""
+    headers = {
+        "Content-Security-Policy": "script-src data:",
+        "Strict-Transport-Security": "max-age=31536000",
+    }
+    with respx.mock:
+        respx.get("https://example.com/").mock(
+            return_value=httpx.Response(200, headers=headers, text="<html></html>")
+        )
+        async with HttpClient() as client:
+            results = await collect_results(scanner, "https://example.com/", client)
+
+    data_uri = [r for r in results if "data:" in r.detail]
+    assert len(data_uri) > 0
+    assert data_uri[0].severity == "LOW"
+
+
+@pytest.mark.asyncio
+async def test_hsts_short_max_age_detected(scanner):
+    """HSTS with short max-age should be flagged."""
+    headers = {
+        "Strict-Transport-Security": "max-age=3600; includeSubDomains",
+        "Content-Security-Policy": "default-src 'self'",
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+    }
+    with respx.mock:
+        respx.get("https://example.com/").mock(
+            return_value=httpx.Response(200, headers=headers, text="<html></html>")
+        )
+        async with HttpClient() as client:
+            results = await collect_results(scanner, "https://example.com/", client)
+
+    hsts_short = [r for r in results if "max-age too short" in r.detail]
+    assert len(hsts_short) > 0
+    assert hsts_short[0].severity == "LOW"
+
+
+@pytest.mark.asyncio
+async def test_hsts_missing_includesubdomains_detected(scanner):
+    """HSTS without includeSubDomains should be flagged."""
+    headers = {
+        "Strict-Transport-Security": "max-age=31536000",
+        "Content-Security-Policy": "default-src 'self'",
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+    }
+    with respx.mock:
+        respx.get("https://example.com/").mock(
+            return_value=httpx.Response(200, headers=headers, text="<html></html>")
+        )
+        async with HttpClient() as client:
+            results = await collect_results(scanner, "https://example.com/", client)
+
+    hsts_subdomains = [r for r in results if "includeSubDomains" in r.detail]
+    assert len(hsts_subdomains) > 0
+    assert hsts_subdomains[0].severity == "INFO"

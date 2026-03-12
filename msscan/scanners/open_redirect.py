@@ -50,6 +50,10 @@ def _is_external(target_url: str, base_url: str) -> bool:
 class Scanner(BaseScanner):
     name = "open_redirect"
 
+    @property
+    def version(self) -> str:
+        return "1.1"
+
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         url = ctx.target
         client = ctx.client

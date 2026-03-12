@@ -49,6 +49,10 @@ VULNERABLE_CNAME_TARGETS: list[str] = [
 class Scanner(BaseScanner):
     name = "subdomain"
 
+    @property
+    def version(self) -> str:
+        return "1.1"
+
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         url = ctx.target
 
@@ -59,12 +63,14 @@ class Scanner(BaseScanner):
         parsed = urlparse(url)
         domain = parsed.netloc.split(":")[0]
 
+        # --- Create a reusable DNS resolver (once for all queries) ---
+        resolver = dns.asyncresolver.Resolver()
+        resolver.lifetime = 3.0
+
         # --- Wildcard DNS detection ---
         wildcard_ips: set[str] = set()
         random_sub = "".join(random.choices(string.ascii_lowercase, k=12))
         try:
-            resolver = dns.asyncresolver.Resolver()
-            resolver.lifetime = 3.0
             answers = await resolver.resolve(f"{random_sub}.{domain}", "A")
             wildcard_ips = {rdata.address for rdata in answers}
         except Exception:
@@ -82,7 +88,7 @@ class Scanner(BaseScanner):
 
         # --- Parallel DNS queries via semaphore (prevents flooding) ---
         sem = asyncio.Semaphore(20)
-        tasks = [self._resolve(sub, domain, sem) for sub in wordlist]
+        tasks = [self._resolve(sub, domain, sem, resolver) for sub in wordlist]
         resolved = await asyncio.gather(*tasks)
 
         for idx, (subdomain, ips, cnames) in enumerate(resolved):
@@ -125,10 +131,12 @@ class Scanner(BaseScanner):
 
     @staticmethod
     async def _resolve(
-        sub: str, domain: str, sem: asyncio.Semaphore
+        sub: str, domain: str, sem: asyncio.Semaphore,
+        resolver: dns.asyncresolver.Resolver,
     ) -> tuple[str, list[str], list[str]]:
         """Resolve A and CNAME records for *sub.domain*.
 
+        Uses a shared DNS resolver instance to avoid re-initialization overhead.
         Returns ``(subdomain, ips, cnames)`` where *cnames* is a list of
         CNAME target strings (may be empty).
         """
@@ -137,9 +145,6 @@ class Scanner(BaseScanner):
         cnames: list[str] = []
 
         async with sem:
-            resolver = dns.asyncresolver.Resolver()
-            resolver.lifetime = 3.0
-
             # Query CNAME records.
             try:
                 cname_answers = await resolver.resolve(fqdn, "CNAME")

@@ -94,6 +94,10 @@ _CONFIDENCE_SCORE_MAP: dict[str, float] = {
 class Scanner(BaseScanner):
     name = "xss"
 
+    @property
+    def version(self) -> str:
+        return "1.1"
+
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         payloads = load_payloads("xss.txt")
         if not payloads:
@@ -123,11 +127,23 @@ class Scanner(BaseScanner):
                     if context == "none":
                         continue
 
-                    severity, confidence = _CONTEXT_MAP[context]
-                    confidence_score = _CONFIDENCE_SCORE_MAP[context]
+                    # For payloads without HTML metacharacters (< > " ' &), only trust
+                    # findings in javascript context to avoid false positives from normal
+                    # string reflection. Non-metacharacter payloads in other contexts get
+                    # low confidence.
+                    has_html_chars = any(c in payload for c in "<>\"'&")
+                    if not has_html_chars and context != "javascript":
+                        # Payload is just alphanumeric/symbols with no HTML risk markers.
+                        # Reflection without context is suspicious but not high-confidence.
+                        confidence_score = 0.3
+                        confidence = "LOW"
+                    else:
+                        severity, confidence = _CONTEXT_MAP[context]
+                        confidence_score = _CONFIDENCE_SCORE_MAP[context]
+
                     yield FindingEvent(result=ScanResult(
                         scanner=self.name,
-                        severity=severity,
+                        severity=_CONTEXT_MAP[context][0],  # Use original severity from map
                         url=test_url,
                         detail=(
                             f"Reflected XSS ({context}) — payload reflected in "

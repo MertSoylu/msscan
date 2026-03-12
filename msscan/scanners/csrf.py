@@ -57,6 +57,10 @@ def _shannon_entropy(value: str) -> float:
 class Scanner(BaseScanner):
     name = "csrf"
 
+    @property
+    def version(self) -> str:
+        return "1.1"
+
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         url = ctx.target
         client = ctx.client
@@ -247,11 +251,13 @@ class Scanner(BaseScanner):
 
     @staticmethod
     def _check_samesite_cookies(resp) -> bool:
-        """Check if SameSite flag is present in Set-Cookie headers."""
-        cookies = resp.headers.get_list("set-cookie") if hasattr(resp.headers, "get_list") else []
-        if not cookies:
-            raw = resp.headers.get("set-cookie", "")
-            cookies = [raw] if raw else []
+        """Check if SameSite flag is present in Set-Cookie headers.
+
+        Properly handles multiple Set-Cookie headers by iterating through
+        resp.headers.multi_items() to get all cookies (httpx doesn't have get_list).
+        """
+        # httpx.Headers.multi_items() returns all header pairs including duplicates
+        cookies = [v for k, v in resp.headers.multi_items() if k.lower() == "set-cookie"]
 
         for cookie in cookies:
             if "samesite=strict" in cookie.lower() or "samesite=lax" in cookie.lower():

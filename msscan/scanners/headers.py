@@ -41,11 +41,6 @@ SECURITY_HEADERS = {
         "detail": "Permissions-Policy missing — no browser API access control",
         "remediation": "Add Permissions-Policy header to restrict browser feature access",
     },
-    "X-XSS-Protection": {
-        "severity": "INFO",
-        "detail": "X-XSS-Protection missing (legacy browsers)",
-        "remediation": "Add X-XSS-Protection header with value 1; mode=block for legacy browser support",
-    },
 }
 
 INFO_LEAKAGE_HEADERS = ["X-Powered-By", "X-AspNet-Version", "X-AspNetMvc-Version"]
@@ -55,6 +50,10 @@ CORS_HEADERS = ["Access-Control-Allow-Origin"]
 
 class Scanner(BaseScanner):
     name = "headers"
+
+    @property
+    def version(self) -> str:
+        return "1.1"
 
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         url = ctx.target
@@ -159,6 +158,23 @@ class Scanner(BaseScanner):
                 cwe_id="CWE-200",
             ))
 
+        # X-XSS-Protection: if PRESENT and enabled, flag as deprecated (modern CSP is preferred)
+        # Don't flag its absence — it's deprecated and shouldn't be added.
+        xss_protection = lower_headers.get("x-xss-protection")
+        if xss_protection:
+            if "1" in xss_protection:  # If it's enabled (1; mode=block or similar)
+                yield FindingEvent(result=ScanResult(
+                    scanner=self.name,
+                    severity="INFO",
+                    url=url,
+                    detail="X-XSS-Protection header is deprecated — use Content-Security-Policy instead",
+                    evidence=f"X-XSS-Protection: {xss_protection}",
+                    confidence="HIGH",
+                    confidence_score=0.8,
+                    cwe_id="CWE-693",
+                    remediation="Remove X-XSS-Protection and rely on Content-Security-Policy for XSS protection.",
+                ))
+
         # Information leakage headers (X-Powered-By, X-AspNet-Version, X-AspNetMvc-Version)
         for header_name in INFO_LEAKAGE_HEADERS:
             value = lower_headers.get(header_name.lower())
@@ -189,12 +205,23 @@ class Scanner(BaseScanner):
         has_unsafe_inline = False
         has_unsafe_eval = False
         has_wildcard = False
+        has_data_uri = False
+        has_http_source = False
+        has_default_src = False
+        has_upgrade_insecure = False
 
         for directive in directives:
             parts = directive.split()
-            if len(parts) < 2:
+            if len(parts) < 1:
                 continue
-            sources = parts[1:]
+            directive_name = parts[0].lower()
+
+            if directive_name == "default-src":
+                has_default_src = True
+            if directive_name == "upgrade-insecure-requests":
+                has_upgrade_insecure = True
+
+            sources = parts[1:] if len(parts) > 1 else []
 
             for source in sources:
                 if source == "'unsafe-inline'":
@@ -203,6 +230,10 @@ class Scanner(BaseScanner):
                     has_unsafe_eval = True
                 if source == "*":
                     has_wildcard = True
+                if source == "data:":
+                    has_data_uri = True
+                if source.startswith("http:"):
+                    has_http_source = True
 
         if has_unsafe_inline:
             findings.append(FindingEvent(result=ScanResult(
@@ -237,6 +268,42 @@ class Scanner(BaseScanner):
                 evidence=f"Content-Security-Policy: {csp_value}",
                 confidence="HIGH",
                 confidence_score=0.9,
+                cwe_id="CWE-693",
+            )))
+
+        if has_data_uri:
+            findings.append(FindingEvent(result=ScanResult(
+                scanner=self.name,
+                severity="LOW",
+                url=url,
+                detail="CSP allows data: URIs (potential XSS vector)",
+                evidence=f"Content-Security-Policy: {csp_value}",
+                confidence="HIGH",
+                confidence_score=0.8,
+                cwe_id="CWE-693",
+            )))
+
+        if has_http_source:
+            findings.append(FindingEvent(result=ScanResult(
+                scanner=self.name,
+                severity="LOW",
+                url=url,
+                detail="CSP allows http: sources (should be https: only)",
+                evidence=f"Content-Security-Policy: {csp_value}",
+                confidence="HIGH",
+                confidence_score=0.8,
+                cwe_id="CWE-693",
+            )))
+
+        if not has_default_src:
+            findings.append(FindingEvent(result=ScanResult(
+                scanner=self.name,
+                severity="LOW",
+                url=url,
+                detail="CSP missing default-src directive (acts as fallback)",
+                evidence=f"Content-Security-Policy: {csp_value}",
+                confidence="MEDIUM",
+                confidence_score=0.7,
                 cwe_id="CWE-693",
             )))
 

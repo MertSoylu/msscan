@@ -58,6 +58,10 @@ _COMPILED_PATTERNS = [(p, re.compile(p, re.IGNORECASE)) for p in SQL_ERROR_PATTE
 class Scanner(BaseScanner):
     name = "sqli"
 
+    @property
+    def version(self) -> str:
+        return "1.1"
+
     async def scan(self, ctx: ScanContext) -> AsyncIterator[ScanEvent]:
         payloads = load_payloads("sqli.txt")
         if not payloads:
@@ -145,28 +149,46 @@ class Scanner(BaseScanner):
     ) -> list[ScanResult]:
         true_payload = "1' AND '1'='1"
         false_payload = "1' AND '1'='2"
+        # Benign payload with original parameter value for baseline comparison
+        benign_payload = "1"
 
         true_url = inject_param(url, param, true_payload)
         false_url = inject_param(url, param, false_payload)
+        benign_url = inject_param(url, param, benign_payload)
 
         try:
+            # Fetch responses for all three: benign baseline, true, false
+            benign_resp = await ctx.client.get(benign_url)
             true_resp = await ctx.client.get(true_url)
             false_resp = await ctx.client.get(false_url)
 
+            benign_len = len(benign_resp.text)
             true_len = len(true_resp.text)
             false_len = len(false_resp.text)
             diff = abs(true_len - false_len)
 
-            max_len = max(true_len, false_len, 1)
-            pct_diff = diff / max_len
+            # For dynamic pages, compare both true and false against benign baseline
+            # instead of just comparing true vs false.
+            benign_diff_true = abs(true_len - benign_len)
+            benign_diff_false = abs(false_len - benign_len)
 
-            if diff > 200 or pct_diff > 0.10:
+            max_len = max(true_len, false_len, benign_len, 1)
+            pct_diff = diff / max_len
+            pct_diff_benign_true = benign_diff_true / max_len
+            pct_diff_benign_false = benign_diff_false / max_len
+
+            # Flag if: (1) true/false differ significantly AND (2) both differ from benign
+            # This avoids false positives where the page is just variable-length
+            if (diff > 200 or pct_diff > 0.10) and (
+                pct_diff_benign_true > 0.05 or pct_diff_benign_false > 0.05
+            ):
                 return [ScanResult(
                     scanner=self.name,
                     severity="HIGH",
                     url=true_url,
                     detail=f"Boolean-based Blind SQLi — response length difference in '{param}' parameter",
                     evidence=(
+                        f"Benign length: {benign_len} | "
                         f"True condition length: {true_len} | "
                         f"False condition length: {false_len} | "
                         f"Difference: {diff} ({pct_diff:.1%})"
@@ -223,20 +245,49 @@ class Scanner(BaseScanner):
                 elapsed = time.monotonic() - t0
 
                 if elapsed >= threshold:
-                    return [ScanResult(
-                        scanner=self.name,
-                        severity="HIGH",
-                        url=test_url,
-                        detail=f"Time-based Blind SQLi — {elapsed:.1f}s delay in '{param}' parameter",
-                        evidence=(
-                            f"Payload: {payload} | Duration: {elapsed:.1f}s | "
-                            f"Baseline: {avg_baseline:.2f}s | Threshold: {threshold:.2f}s"
-                        ),
-                        confidence="MEDIUM",
-                        confidence_score=0.6,
-                        remediation=_REMEDIATION,
-                        cwe_id="CWE-89",
-                    )]
+                    # Confirmation: send a benign request to verify the delay was real
+                    # and not just network jitter. If benign request is fast, the SQLi
+                    # finding is more credible.
+                    confirmation_url = inject_param(url, param, "1")
+                    try:
+                        t_confirm = time.monotonic()
+                        await ctx.client.get(confirmation_url)
+                        confirm_elapsed = time.monotonic() - t_confirm
+
+                        # If confirmation is fast (< avg_baseline * 1.5), the original delay
+                        # is likely real and not just network slowness.
+                        if confirm_elapsed < (avg_baseline * 1.5):
+                            return [ScanResult(
+                                scanner=self.name,
+                                severity="HIGH",
+                                url=test_url,
+                                detail=f"Time-based Blind SQLi — {elapsed:.1f}s delay in '{param}' parameter",
+                                evidence=(
+                                    f"Payload: {payload} | Duration: {elapsed:.1f}s | "
+                                    f"Baseline: {avg_baseline:.2f}s | Threshold: {threshold:.2f}s | "
+                                    f"Confirmation (benign): {confirm_elapsed:.2f}s"
+                                ),
+                                confidence="MEDIUM",
+                                confidence_score=0.6,
+                                remediation=_REMEDIATION,
+                                cwe_id="CWE-89",
+                            )]
+                    except Exception:
+                        # If confirmation request fails, still emit finding based on elapsed time
+                        return [ScanResult(
+                            scanner=self.name,
+                            severity="HIGH",
+                            url=test_url,
+                            detail=f"Time-based Blind SQLi — {elapsed:.1f}s delay in '{param}' parameter",
+                            evidence=(
+                                f"Payload: {payload} | Duration: {elapsed:.1f}s | "
+                                f"Baseline: {avg_baseline:.2f}s | Threshold: {threshold:.2f}s"
+                            ),
+                            confidence="MEDIUM",
+                            confidence_score=0.6,
+                            remediation=_REMEDIATION,
+                            cwe_id="CWE-89",
+                        )]
             except Exception:
                 continue
 
