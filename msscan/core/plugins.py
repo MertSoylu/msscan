@@ -38,12 +38,29 @@ def discover_scanners() -> dict[str, type["BaseScanner"]]:
     """
     scanners: dict[str, type["BaseScanner"]] = {}
 
+    def _validate_scanner(scanner_cls: type["BaseScanner"], label: str) -> bool:
+        try:
+            instance = scanner_cls()
+        except Exception as exc:
+            logger.warning("Failed to instantiate scanner '%s': %s", label, exc)
+            return False
+        validate = getattr(instance, "validate", None)
+        if not callable(validate):
+            logger.warning("Scanner '%s' missing validate() method", label)
+            return False
+        try:
+            validate()
+        except Exception as exc:
+            logger.warning("Scanner '%s' failed validation: %s", label, exc)
+            return False
+        return True
+
     # 1. Built-in scanners
     for name, module_path in BUILTIN_SCANNERS.items():
         try:
             mod = importlib.import_module(module_path)
             scanner_cls = getattr(mod, "Scanner", None)
-            if scanner_cls is not None:
+            if scanner_cls is not None and _validate_scanner(scanner_cls, name):
                 scanners[name] = scanner_cls
         except Exception as exc:
             logger.warning("Failed to load built-in scanner '%s': %s", name, exc)
@@ -61,7 +78,8 @@ def discover_scanners() -> dict[str, type["BaseScanner"]]:
             try:
                 scanner_cls = ep.load()
                 if hasattr(scanner_cls, "name") and hasattr(scanner_cls, "scan"):
-                    scanners[ep.name] = scanner_cls
+                    if _validate_scanner(scanner_cls, ep.name):
+                        scanners[ep.name] = scanner_cls
                 else:
                     logger.warning(
                         "Entry point '%s' does not define a valid Scanner class", ep.name
@@ -86,7 +104,8 @@ def discover_scanners() -> dict[str, type["BaseScanner"]]:
                     scanner_cls = getattr(mod, "Scanner", None)
                     if scanner_cls is not None and hasattr(scanner_cls, "scan"):
                         name = getattr(scanner_cls, "name", py_file.stem)
-                        scanners[name] = scanner_cls
+                        if _validate_scanner(scanner_cls, name):
+                            scanners[name] = scanner_cls
                     else:
                         logger.warning(
                             "Plugin '%s' does not define a Scanner class", py_file.name

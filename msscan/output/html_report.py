@@ -39,6 +39,21 @@ HTML_TEMPLATE = """\
         .badge-low { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff; }
         .badge-info { background: #8b949e22; color: #8b949e; border: 1px solid #8b949e; }
 
+        /* Executive summary */
+        .exec-summary { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem; margin-bottom: 1.5rem; }
+        .exec-summary h2 { color: #58a6ff; font-size: 1.1rem; margin-bottom: 0.8rem; }
+        .exec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem; }
+        .exec-item { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 0.8rem 1rem; }
+        .exec-label { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
+        .exec-value { color: #c9d1d9; font-size: 1.2rem; font-weight: bold; margin-top: 0.25rem; }
+
+        /* Risk matrix */
+        .risk-matrix { margin-bottom: 2rem; }
+        .risk-matrix h3 { color: #58a6ff; font-size: 1rem; margin-bottom: 0.6rem; }
+        .risk-matrix table { width: 100%; border-collapse: collapse; }
+        .risk-matrix th, .risk-matrix td { padding: 0.6rem 0.8rem; border: 1px solid #30363d; text-align: left; }
+        .risk-matrix th { background: #161b22; color: #8b949e; font-size: 0.8rem; text-transform: uppercase; }
+
         /* Module section */
         .module-section { margin-bottom: 2.5rem; }
         .module-title {
@@ -71,6 +86,11 @@ HTML_TEMPLATE = """\
         .sev-INFO { background: #8b949e22; color: #8b949e; border: 1px solid #8b949e; }
         .summary-detail { color: #c9d1d9; font-size: 0.95rem; flex: 1; }
         .summary-url { color: #8b949e; font-size: 0.8rem; }
+        .cvss-badge {
+            padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem;
+            background: #0d2b3a; color: #58a6ff; border: 1px solid #1f6feb;
+            font-weight: bold;
+        }
 
         /* Expanded detail panel */
         .detail-panel { padding: 1rem 1.2rem; background: #0d1117; border-top: 1px solid #21262d; }
@@ -132,6 +152,44 @@ HTML_TEMPLATE = """\
         {% endif %}{% endfor %}
     </div>
 
+    <div class="exec-summary">
+        <h2>Executive Summary</h2>
+        <div class="exec-grid">
+            <div class="exec-item">
+                <div class="exec-label">Total Findings</div>
+                <div class="exec-value">{{ results|length }}</div>
+            </div>
+            <div class="exec-item">
+                <div class="exec-label">Average CVSS</div>
+                <div class="exec-value">{{ avg_cvss }}</div>
+            </div>
+            <div class="exec-item">
+                <div class="exec-label">Highest Risk</div>
+                <div class="exec-value">{{ highest_risk }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="risk-matrix">
+        <h3>Risk Matrix</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Severity</th>
+                    <th>Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] %}
+                <tr>
+                    <td><span class="badge badge-{{ sev|lower }}">{{ sev }}</span></td>
+                    <td>{{ severity_counts[sev] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
     {% if results %}
     {% for module, findings in grouped.items() %}
     <div class="module-section">
@@ -141,6 +199,7 @@ HTML_TEMPLATE = """\
             <summary>
                 <span class="arrow">▶</span>
                 <span class="sev-badge sev-{{ r.severity }}">{{ r.severity }}</span>
+                <span class="cvss-badge">CVSS {{ "%.1f"|format(r.cvss_score) }}</span>
                 <span>
                     <div class="summary-detail">{{ r.detail }}</div>
                     <div class="summary-url">{{ r.url }}</div>
@@ -152,6 +211,11 @@ HTML_TEMPLATE = """\
                     <span class="detail-value">{{ r.scanner|upper }}</span>
                     <span class="detail-label">Severity</span>
                     <span class="detail-value">{{ r.severity }}</span>
+                    <span class="detail-label">CVSS</span>
+                    <span class="detail-value">
+                        {{ "%.1f"|format(r.cvss_score) }}
+                        {% if r.cvss_vector %}<span style="color:#8b949e">({{ r.cvss_vector }})</span>{% endif %}
+                    </span>
                     <span class="detail-label">Confidence</span>
                     <span class="detail-value"><span class="conf-badge conf-{{ r.confidence }}">{{ r.confidence }}</span></span>
                     {% if r.cwe_id %}
@@ -162,6 +226,10 @@ HTML_TEMPLATE = """\
                     <span class="detail-value">{{ r.url }}</span>
                     <span class="detail-label">Detail</span>
                     <span class="detail-value">{{ r.detail }}</span>
+                    {% if r.exploit_scenario %}
+                    <span class="detail-label">Exploit Scenario</span>
+                    <span class="detail-value">{{ r.exploit_scenario }}</span>
+                    {% endif %}
                     <span class="detail-label">Timestamp</span>
                     <span class="detail-value">{{ r.timestamp }}</span>
                 </div>
@@ -220,6 +288,15 @@ def generate_html_report(
     for r in results:
         grouped[r.scanner].append(r)
 
+    if results:
+        avg_cvss_value = sum(r.cvss_score for r in results) / len(results)
+        avg_cvss = f"{avg_cvss_value:.1f}"
+        max_result = max(results, key=lambda r: r.cvss_score)
+        highest_risk = f"{max_result.severity} (CVSS {max_result.cvss_score:.1f})"
+    else:
+        avg_cvss = "—"
+        highest_risk = "—"
+
     # Show a dash when elapsed time was not provided (e.g. called outside do_scan)
     elapsed_str = f"{elapsed_secs:.2f}s" if elapsed_secs else "—"
 
@@ -229,6 +306,8 @@ def generate_html_report(
         results=results,
         grouped=grouped,           # dict[scanner_name -> list[ScanResult]]
         severity_counts=severity_counts,
+        avg_cvss=avg_cvss,
+        highest_risk=highest_risk,
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         elapsed=elapsed_str,
         version=__version__,

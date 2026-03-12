@@ -15,6 +15,9 @@ def _make_result(**kwargs) -> ScanResult:
     defaults = dict(
         scanner="xss", severity="HIGH", url="https://test.com",
         detail="XSS found", cwe_id="CWE-79", confidence="HIGH",
+        cvss_score=6.1,
+        cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        exploit_scenario="Injected script executes in the victim's browser.",
     )
     defaults.update(kwargs)
     return ScanResult(**defaults)
@@ -49,6 +52,9 @@ def test_json_report_finding_fields(tmp_path):
     assert finding["cwe_id"] == "CWE-79"
     assert finding["evidence"] == "<script>"
     assert finding["remediation"] == "encode output"
+    assert finding["cvss_score"] == 6.1
+    assert finding["cvss_vector"].startswith("CVSS:3.1/")
+    assert finding["exploit_scenario"] != ""
 
 
 def test_json_report_empty_results(tmp_path):

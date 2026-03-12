@@ -90,9 +90,43 @@ _CONFIDENCE_SCORE_MAP: dict[str, float] = {
     "encoded":        0.2,
 }
 
+# CVSS v3.1 mapping per reflection context
+_CONTEXT_CVSS_MAP: dict[str, tuple[float, str]] = {
+    "javascript": (
+        8.8,
+        "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N",
+    ),
+    "html_body": (
+        6.1,
+        "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    ),
+    "html_attribute": (
+        6.1,
+        "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    ),
+    "html_comment": (
+        3.1,
+        "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N",
+    ),
+    "encoded": (
+        0.0,
+        "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:N",
+    ),
+}
+
+_CONTEXT_SCENARIO_MAP: dict[str, str] = {
+    "javascript": "Injected script executes in a JavaScript context in the victim's browser.",
+    "html_body": "Injected HTML/JS executes in the page body when the victim loads the page.",
+    "html_attribute": "Injected payload breaks out of an HTML attribute and executes script.",
+    "html_comment": "Injected content appears in HTML comments; impact is limited but may enable XSS.",
+    "encoded": "Payload is HTML-encoded and not executed, indicating low exploitability.",
+}
+
 
 class Scanner(BaseScanner):
     name = "xss"
+    description = "Reflected XSS scanner with context-aware severity classification."
+    author = "msscan"
 
     @property
     def version(self) -> str:
@@ -141,6 +175,11 @@ class Scanner(BaseScanner):
                         severity, confidence = _CONTEXT_MAP[context]
                         confidence_score = _CONFIDENCE_SCORE_MAP[context]
 
+                    cvss_score, cvss_vector = _CONTEXT_CVSS_MAP.get(
+                        context, (0.0, "")
+                    )
+                    exploit_scenario = _CONTEXT_SCENARIO_MAP.get(context, "")
+
                     yield FindingEvent(result=ScanResult(
                         scanner=self.name,
                         severity=_CONTEXT_MAP[context][0],  # Use original severity from map
@@ -152,6 +191,9 @@ class Scanner(BaseScanner):
                         evidence=payload,
                         confidence=confidence,
                         confidence_score=confidence_score,
+                        cvss_score=cvss_score,
+                        cvss_vector=cvss_vector,
+                        exploit_scenario=exploit_scenario,
                         cwe_id="CWE-79",
                         remediation=_REMEDIATION,
                     ))

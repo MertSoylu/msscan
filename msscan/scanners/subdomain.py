@@ -45,9 +45,24 @@ VULNERABLE_CNAME_TARGETS: list[str] = [
     "helpjuice.com",
 ]
 
+_CVSS_TAKEOVER_HIGH = (
+    8.6,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+)
+_CVSS_TAKEOVER_MEDIUM = (
+    5.3,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+)
+_CVSS_SUBDOMAIN_INFO = (
+    0.0,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N",
+)
+
 
 class Scanner(BaseScanner):
     name = "subdomain"
+    description = "Subdomain enumeration with wildcard detection and takeover checks."
+    author = "msscan"
 
     @property
     def version(self) -> str:
@@ -119,6 +134,9 @@ class Scanner(BaseScanner):
                 cwe_id="",
                 confidence="HIGH",
                 confidence_score=0.9,
+                cvss_score=_CVSS_SUBDOMAIN_INFO[0],
+                cvss_vector=_CVSS_SUBDOMAIN_INFO[1],
+                exploit_scenario="Discovered subdomain increases the externally reachable attack surface.",
             ))
 
             if (idx + 1) % 10 == 0 or idx + 1 == len(resolved):
@@ -199,6 +217,11 @@ class Scanner(BaseScanner):
                 evidence=cname_evidence,
                 confidence="HIGH",
                 confidence_score=0.85,
+                cvss_score=_CVSS_TAKEOVER_HIGH[0],
+                cvss_vector=_CVSS_TAKEOVER_HIGH[1],
+                exploit_scenario=(
+                    "Dangling CNAME may allow an attacker to claim the service and host content."
+                ),
                 cwe_id="CWE-345",
                 remediation="Remove dangling DNS record or reclaim the service",
             )
@@ -212,6 +235,11 @@ class Scanner(BaseScanner):
             evidence=cname_evidence,
             confidence="MEDIUM",
             confidence_score=0.6,
+            cvss_score=_CVSS_TAKEOVER_MEDIUM[0],
+            cvss_vector=_CVSS_TAKEOVER_MEDIUM[1],
+            exploit_scenario=(
+                "Third-party service association may be abused if the account is unclaimed."
+            ),
             cwe_id="CWE-345",
             remediation="Remove dangling DNS record or reclaim the service",
         )

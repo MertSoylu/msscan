@@ -25,6 +25,11 @@ _REMEDIATION = (
     "Reject or sanitize any URL that does not match an allowed destination."
 )
 
+_CVSS_OPEN_REDIRECT = (
+    6.1,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+)
+
 # JS redirect patterns: capture the URL string from common redirect assignments.
 _JS_REDIRECT_RE = re.compile(
     r"""(?:window\.location|document\.location|window\.location\.href|window\.location\.replace)\s*[=(]\s*['"]([^'"]+)['"]""",
@@ -49,6 +54,8 @@ def _is_external(target_url: str, base_url: str) -> bool:
 
 class Scanner(BaseScanner):
     name = "open_redirect"
+    description = "Open redirect detection for HTTP, JavaScript, and meta-refresh flows."
+    author = "msscan"
 
     @property
     def version(self) -> str:
@@ -96,6 +103,11 @@ class Scanner(BaseScanner):
                                 evidence=f"Location: {location}",
                                 confidence="HIGH",
                                 confidence_score=0.9,
+                                cvss_score=_CVSS_OPEN_REDIRECT[0],
+                                cvss_vector=_CVSS_OPEN_REDIRECT[1],
+                                exploit_scenario=(
+                                    "An attacker can craft a link that redirects victims to a malicious site."
+                                ),
                                 cwe_id="CWE-601",
                                 remediation=_REMEDIATION,
                             ))
@@ -119,6 +131,11 @@ class Scanner(BaseScanner):
                                     evidence=f"JS redirect: {js_match.group(0)[:120]}",
                                     confidence="MEDIUM",
                                     confidence_score=0.6,
+                                    cvss_score=_CVSS_OPEN_REDIRECT[0],
+                                    cvss_vector=_CVSS_OPEN_REDIRECT[1],
+                                    exploit_scenario=(
+                                        "An attacker can craft a link that redirects victims to a malicious site."
+                                    ),
                                     cwe_id="CWE-601",
                                     remediation=_REMEDIATION,
                                 ))
@@ -143,6 +160,11 @@ class Scanner(BaseScanner):
                                     evidence=f"Meta refresh URL: {meta_url}",
                                     confidence="HIGH",
                                     confidence_score=0.7,
+                                    cvss_score=_CVSS_OPEN_REDIRECT[0],
+                                    cvss_vector=_CVSS_OPEN_REDIRECT[1],
+                                    exploit_scenario=(
+                                        "An attacker can craft a link that redirects victims to a malicious site."
+                                    ),
                                     cwe_id="CWE-601",
                                     remediation=_REMEDIATION,
                                 ))

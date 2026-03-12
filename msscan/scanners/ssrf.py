@@ -50,12 +50,19 @@ _REMEDIATION = (
     "Use a dedicated egress proxy to enforce network-level restrictions."
 )
 
+_CVSS_SSRF = (
+    9.1,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+)
+
 # Benign value used to establish a baseline response for differential analysis.
 _BENIGN_VALUE = "https://example.com"
 
 
 class Scanner(BaseScanner):
     name = "ssrf"
+    description = "SSRF detection with differential response analysis."
+    author = "msscan"
 
     @property
     def version(self) -> str:
@@ -126,6 +133,11 @@ class Scanner(BaseScanner):
                             evidence=f"Indicator: {pattern!r} | Payload: {payload}",
                             confidence=confidence,
                             confidence_score=confidence_score,
+                            cvss_score=_CVSS_SSRF[0],
+                            cvss_vector=_CVSS_SSRF[1],
+                            exploit_scenario=(
+                                f"Server can be coerced to access internal resources ({description})."
+                            ),
                             cwe_id="CWE-918",
                             remediation=_REMEDIATION,
                         ))

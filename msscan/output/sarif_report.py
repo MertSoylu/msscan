@@ -53,6 +53,13 @@ def generate_sarif_report(
     """Generate a SARIF 2.1.0 report from scan results."""
     version = _get_version()
 
+    rule_cvss: dict[str, tuple[float, str]] = {}
+    for r in results:
+        rule_id = f"{r.scanner}/{r.cwe_id}" if r.cwe_id else r.scanner
+        existing = rule_cvss.get(rule_id)
+        if existing is None or r.cvss_score > existing[0]:
+            rule_cvss[rule_id] = (r.cvss_score, r.cvss_vector)
+
     # Build rules from unique (scanner, cwe_id) pairs
     rules: list[dict] = []
     rule_index: dict[str, int] = {}
@@ -61,12 +68,19 @@ def generate_sarif_report(
         rule_id = f"{r.scanner}/{r.cwe_id}" if r.cwe_id else r.scanner
         if rule_id not in rule_index:
             rule_index[rule_id] = len(rules)
+            cvss_score, cvss_vector = rule_cvss.get(rule_id, (0.0, ""))
             rule: dict = {
                 "id": rule_id,
                 "name": r.scanner.upper(),
                 "shortDescription": {"text": r.detail[:200]},
                 "defaultConfiguration": {
                     "level": _SEVERITY_TO_LEVEL.get(r.severity, "note"),
+                },
+                "properties": {
+                    "cvssV3_1": {
+                        "score": cvss_score,
+                        "vector": cvss_vector,
+                    },
                 },
             }
             if r.cwe_id:
@@ -102,6 +116,8 @@ def generate_sarif_report(
                 "confidence": r.confidence,
                 "confidence_score": r.confidence_score,
                 "scanner": r.scanner,
+                "cvssScore": r.cvss_score,
+                "cvssVector": r.cvss_vector,
             },
         }
         if r.evidence:

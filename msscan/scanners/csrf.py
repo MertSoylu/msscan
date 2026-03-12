@@ -40,6 +40,19 @@ _REMEDIATION = (
     "and validate it server-side. Alternatively use SameSite=Strict cookies."
 )
 
+_CVSS_CSRF_HIGH = (
+    6.5,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+)
+_CVSS_CSRF_MEDIUM = (
+    5.3,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N",
+)
+_CVSS_CSRF_LOW = (
+    3.1,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+)
+
 _HEADER_TOKEN_NAMES = {"x-csrf-token", "x-xsrf-token", "x-csrftoken", "x-anti-forgery"}
 
 
@@ -56,6 +69,8 @@ def _shannon_entropy(value: str) -> float:
 
 class Scanner(BaseScanner):
     name = "csrf"
+    description = "CSRF protection analysis for forms and tokens."
+    author = "msscan"
 
     @property
     def version(self) -> str:
@@ -129,6 +144,11 @@ class Scanner(BaseScanner):
                     evidence=f"Method: GET | Action: {action}",
                     confidence="MEDIUM",
                     confidence_score=0.6,
+                    cvss_score=_CVSS_CSRF_MEDIUM[0],
+                    cvss_vector=_CVSS_CSRF_MEDIUM[1],
+                    exploit_scenario=(
+                        "A crafted link can trigger a state-changing GET request for a logged-in user."
+                    ),
                     cwe_id="CWE-352",
                     remediation=_REMEDIATION,
                 ))
@@ -171,6 +191,11 @@ class Scanner(BaseScanner):
                     evidence=f"No CSRF token found. Input fields: {', '.join(input_names[:5])}",
                     confidence="HIGH",
                     confidence_score=0.9,
+                    cvss_score=_CVSS_CSRF_HIGH[0],
+                    cvss_vector=_CVSS_CSRF_HIGH[1],
+                    exploit_scenario=(
+                        "An attacker can trick a logged-in user into submitting a forged request."
+                    ),
                     cwe_id="CWE-352",
                     remediation=_REMEDIATION,
                 ))
@@ -183,6 +208,11 @@ class Scanner(BaseScanner):
                     evidence="SameSite cookie protection found, but token-based protection is recommended",
                     confidence="MEDIUM",
                     confidence_score=0.5,
+                    cvss_score=_CVSS_CSRF_LOW[0],
+                    cvss_vector=_CVSS_CSRF_LOW[1],
+                    exploit_scenario=(
+                        "Protection relies on SameSite cookies; token-based defense is missing."
+                    ),
                     cwe_id="CWE-352",
                     remediation=_REMEDIATION,
                 ))
@@ -205,6 +235,11 @@ class Scanner(BaseScanner):
                         evidence=f"Token value appears in Set-Cookie header",
                         confidence="LOW",
                         confidence_score=0.3,
+                        cvss_score=_CVSS_CSRF_LOW[0],
+                        cvss_vector=_CVSS_CSRF_LOW[1],
+                        exploit_scenario=(
+                            "Token matches a cookie value, which may be bypassed if an attacker can set cookies."
+                        ),
                         cwe_id="CWE-352",
                         remediation=(
                             "Double-submit cookie is weaker than server-side validation. "
@@ -241,6 +276,9 @@ class Scanner(BaseScanner):
                 evidence=f"Token: {token_value[:20]}{'...' if len(token_value) > 20 else ''}",
                 confidence="MEDIUM",
                 confidence_score=0.5,
+                cvss_score=_CVSS_CSRF_LOW[0],
+                cvss_vector=_CVSS_CSRF_LOW[1],
+                exploit_scenario="Low-entropy CSRF tokens may be guessed or predicted.",
                 cwe_id="CWE-352",
                 remediation=(
                     "Use a cryptographically secure random generator (e.g. secrets.token_hex(32)) "

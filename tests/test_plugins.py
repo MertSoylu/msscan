@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -93,6 +94,11 @@ from msscan.core.events import ScanEvent
 
 class Scanner(BaseScanner):
     name = "test_plugin"
+    description = "Test plugin scanner"
+    author = "tests"
+    @property
+    def version(self) -> str:
+        return "1.0"
     async def scan(self, ctx):
         yield  # type: ignore
 '''
@@ -114,3 +120,20 @@ def test_discover_skips_underscore_files(tmp_path):
 
     # Should only have builtins, no _helper
     assert "_helper" not in scanners
+
+
+def test_new_plugin_scaffold_importable(tmp_path, monkeypatch):
+    """new-plugin scaffold should be importable and expose Scanner."""
+    monkeypatch.setattr("msscan.core.plugins._PLUGIN_DIR", tmp_path)
+
+    from msscan.cli.app import new_plugin
+
+    new_plugin("sample_plugin")
+    plugin_path = tmp_path / "sample_plugin.py"
+    assert plugin_path.exists()
+
+    spec = importlib.util.spec_from_file_location("sample_plugin", plugin_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert hasattr(module, "Scanner")

@@ -16,6 +16,8 @@ def _make_result(**kwargs) -> ScanResult:
         scanner="xss", severity="HIGH", url="https://test.com",
         detail="Reflected XSS", cwe_id="CWE-79", confidence="HIGH",
         confidence_score=0.9,
+        cvss_score=6.1,
+        cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
     )
     defaults.update(kwargs)
     return ScanResult(**defaults)
@@ -55,6 +57,7 @@ def test_sarif_rules_generated(tmp_path):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     rules = data["runs"][0]["tool"]["driver"]["rules"]
     assert len(rules) == 2  # xss/CWE-79 and sqli/CWE-89
+    assert "cvssV3_1" in rules[0]["properties"]
 
 
 def test_sarif_results_count(tmp_path):
@@ -97,6 +100,8 @@ def test_sarif_result_properties(tmp_path):
     assert props["confidence"] == "HIGH"
     assert props["confidence_score"] == 0.9
     assert props["scanner"] == "xss"
+    assert props["cvssScore"] == 6.1
+    assert props["cvssVector"].startswith("CVSS:3.1/")
 
 
 def test_sarif_cwe_taxonomy(tmp_path):

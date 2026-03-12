@@ -20,6 +20,9 @@ class ScanResult:
     confidence_score: float = 0.5  # 0.0-1.0 numeric confidence for CI/CD thresholding
     remediation: str = ""  # actionable fix guidance
     cwe_id: str = ""  # e.g. "CWE-79"
+    cvss_score: float = 0.0  # CVSS v3.1 base score (0.0-10.0)
+    cvss_vector: str = ""  # e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N"
+    exploit_scenario: str = ""  # short, human-readable exploit description
     references: list[str] = field(default_factory=list)
     # ISO 8601 timestamp with seconds precision, auto-set at creation time
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))

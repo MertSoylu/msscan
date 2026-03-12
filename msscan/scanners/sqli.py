@@ -15,6 +15,15 @@ from msscan.utils.payloads import load_payloads
 
 _REMEDIATION = "Use parameterized queries / prepared statements instead of string concatenation"
 
+_CVSS_ERROR_BASED = (
+    9.8,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+)
+_CVSS_BLIND = (
+    7.5,
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+)
+
 # SQL error message patterns (all evaluated as regex via re.search)
 SQL_ERROR_PATTERNS = [
     r"you have an error in your sql syntax",
@@ -57,6 +66,8 @@ _COMPILED_PATTERNS = [(p, re.compile(p, re.IGNORECASE)) for p in SQL_ERROR_PATTE
 
 class Scanner(BaseScanner):
     name = "sqli"
+    description = "SQL injection scanner for error, boolean, and time-based techniques."
+    author = "msscan"
 
     @property
     def version(self) -> str:
@@ -136,6 +147,11 @@ class Scanner(BaseScanner):
                             evidence=f"Pattern: {raw_pattern} | Payload: {payload}",
                             confidence="HIGH",
                             confidence_score=0.95,
+                            cvss_score=_CVSS_ERROR_BASED[0],
+                            cvss_vector=_CVSS_ERROR_BASED[1],
+                            exploit_scenario=(
+                                f"An attacker can inject SQL via '{param}' to read or modify data."
+                            ),
                             remediation=_REMEDIATION,
                             cwe_id="CWE-89",
                         )]
@@ -195,6 +211,11 @@ class Scanner(BaseScanner):
                     ),
                     confidence="MEDIUM",
                     confidence_score=0.5,
+                    cvss_score=_CVSS_BLIND[0],
+                    cvss_vector=_CVSS_BLIND[1],
+                    exploit_scenario=(
+                        f"An attacker can infer database responses via '{param}' and extract data."
+                    ),
                     remediation=_REMEDIATION,
                     cwe_id="CWE-89",
                 )]
@@ -269,6 +290,11 @@ class Scanner(BaseScanner):
                                 ),
                                 confidence="MEDIUM",
                                 confidence_score=0.6,
+                                cvss_score=_CVSS_BLIND[0],
+                                cvss_vector=_CVSS_BLIND[1],
+                                exploit_scenario=(
+                                    f"An attacker can delay responses via '{param}' to infer data."
+                                ),
                                 remediation=_REMEDIATION,
                                 cwe_id="CWE-89",
                             )]
@@ -285,6 +311,11 @@ class Scanner(BaseScanner):
                             ),
                             confidence="MEDIUM",
                             confidence_score=0.6,
+                            cvss_score=_CVSS_BLIND[0],
+                            cvss_vector=_CVSS_BLIND[1],
+                            exploit_scenario=(
+                                f"An attacker can delay responses via '{param}' to infer data."
+                            ),
                             remediation=_REMEDIATION,
                             cwe_id="CWE-89",
                         )]
